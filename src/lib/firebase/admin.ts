@@ -32,7 +32,20 @@ export function getFirebaseAdminApp(): App | null {
       return appInstance;
     }
 
-    // 2. Fall back to individual environment variables
+    // 2. Try loading from FIREBASE_SERVICE_ACCOUNT_KEY env var (JSON string, common on Vercel / Cloud)
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+      try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+        appInstance = initializeApp({
+          credential: cert(serviceAccount),
+        });
+        return appInstance;
+      } catch (e) {
+        console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY as JSON:', e);
+      }
+    }
+
+    // 3. Fall back to individual environment variables
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
