@@ -661,6 +661,25 @@ export default function ClientsPage() {
         if (cachedEvents) setEvents(JSON.parse(cachedEvents));
       } catch {}
     }
+
+    // Listen for task status changes from other pages (e.g. projects page)
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('docspace_task_status');
+      bc.onmessage = (event) => {
+        const { taskId, status } = event.data || {};
+        if (!taskId || !status) return;
+        setTasks(prev => {
+          const updated = prev.map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
+          try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+      };
+    } catch {}
+
+    return () => {
+      try { bc?.close(); } catch {}
+    };
   }, []);
 
   // Persistence effects (only write after mounted)
@@ -1750,6 +1769,22 @@ export default function ClientsPage() {
 
   const handleUpdateClientTaskStatus = async (taskId: string, nextStatus: string) => {
     if (!activeWorkspace) return;
+
+    // 1. Instant optimistic update — 0ms response
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === taskId ? { ...t, status: nextStatus as Task['status'] } : t);
+      try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
+    // 2. Broadcast to other open pages (projects page, etc.) for instant cross-page sync
+    try {
+      const bc = new BroadcastChannel('docspace_task_status');
+      bc.postMessage({ taskId, status: nextStatus, workspaceId: activeWorkspace.id });
+      bc.close();
+    } catch {}
+
+    // 3. Single background server write — no fetchAllData
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'PATCH',
@@ -1760,14 +1795,16 @@ export default function ClientsPage() {
           status: nextStatus
         }),
       });
-      if (res.ok) {
-        fetchAllData();
-      } else {
-        alert('Failed to update task status');
+      if (!res.ok) {
+        // Revert optimistic update on failure
+        setTasks(prev => {
+          const reverted = prev.map(t => t.id === taskId ? { ...t } : t);
+          return reverted;
+        });
+        console.error('Failed to update task status — reverting');
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to update task status');
     }
   };
 

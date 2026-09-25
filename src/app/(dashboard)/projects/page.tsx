@@ -179,6 +179,38 @@ export default function ProjectsPage() {
         if (savedPriority) setFilterPriority(savedPriority);
       } catch {}
     }
+
+    // Listen for task status changes broadcast from other pages (e.g. clients page)
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('docspace_task_status');
+      bc.onmessage = (event) => {
+        const { taskId, status } = event.data || {};
+        if (!taskId || !status) return;
+        setProjects(prevProjects => prevProjects.map(proj => {
+          const tasks = proj.tasks || [];
+          if (!tasks.some(t => t.id === taskId)) return proj;
+          const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
+          const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+          const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+          return { ...proj, tasks: updatedTasks, progress };
+        }));
+        // Also update selectedProject & selectedTask if they are open
+        setSelectedProject(prev => {
+          if (!prev) return null;
+          if (!prev.tasks?.some(t => t.id === taskId)) return prev;
+          const updatedTasks = (prev.tasks || []).map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
+          const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+          const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+          return { ...prev, tasks: updatedTasks, progress };
+        });
+        setSelectedTask(prev => prev?.id === taskId ? ({ ...prev, status: status as Task['status'] }) as Task : prev);
+      };
+    } catch {}
+
+    return () => {
+      try { bc?.close(); } catch {}
+    };
   }, []);
 
   // Persistence effects (only after mounted)
@@ -593,7 +625,14 @@ export default function ProjectsPage() {
       });
     }
 
-    // 2. Background sync
+    // 2. Broadcast to other open pages (clients page, etc.) for instant cross-page sync
+    try {
+      const bc = new BroadcastChannel('docspace_task_status');
+      bc.postMessage({ taskId: task.id, status: nextStatus, workspaceId: activeWorkspace.id });
+      bc.close();
+    } catch {}
+
+    // 3. Background sync
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'PATCH',
