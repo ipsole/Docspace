@@ -5,6 +5,12 @@ const COOKIE_NAME = 'docspace_session';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Explicit bypass for all API routes, static assets, and favicon
+  if (pathname.startsWith('/api') || pathname.startsWith('/_next') || pathname === '/favicon.ico') {
+    return NextResponse.next();
+  }
+
   const sessionCookie = request.cookies.get(COOKIE_NAME);
 
   // If path is a protected dashboard page and no session cookie is present, redirect to login

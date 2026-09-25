@@ -101,7 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ idToken })
     });
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`Server returned status ${res.status}: ${rawText.slice(0, 80).replace(/<[^>]*>/g, '').trim() || 'Internal Error'}`);
+    }
+
     if (!res.ok) {
       // Sign out from Firebase if server rejected authorization
       const { signOut } = await import('firebase/auth');
