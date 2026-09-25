@@ -20,10 +20,22 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefin
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = localStorage.getItem('docspace_cached_workspaces');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('docspace_cached_active_ws');
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
   const [currentMember, setCurrentMember] = useState<WorkspaceMember | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const fetchCurrentMember = async (wsId?: string) => {
     const targetWsId = wsId || activeWorkspace?.id;
@@ -119,33 +131,41 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/workspaces');
       if (res.ok) {
         const data = (await res.json()) as Workspace[];
-        
-        setTimeout(() => {
-          setWorkspaces(data);
+        setWorkspaces(data);
+        try {
+          localStorage.setItem('docspace_cached_workspaces', JSON.stringify(data));
+        } catch {}
 
-          // Try to recover active workspace from localStorage
-          const storedActiveId = localStorage.getItem(`docspace_active_ws_${user.id}`);
-          let active = data.find(ws => ws.id === storedActiveId) || null;
+        // Try to recover active workspace from localStorage
+        const storedActiveId = localStorage.getItem(`docspace_active_ws_${user.id}`);
+        let active = data.find(ws => ws.id === storedActiveId) || null;
 
-          // If not found in localStorage or no longer in membership, default to first workspace
-          if (!active && data.length > 0) {
-            active = data[0];
-          }
+        // If not found in localStorage or no longer in membership, default to first workspace
+        if (!active && data.length > 0) {
+          active = data[0];
+        }
 
-          setActiveWorkspaceState(active);
-        }, 0);
+        setActiveWorkspaceState(active);
+        if (active) {
+          try {
+            localStorage.setItem('docspace_cached_active_ws', JSON.stringify(active));
+          } catch {}
+        }
       }
     } catch (err) {
       console.error('Failed to fetch workspaces:', err);
     } finally {
-      setTimeout(() => {
-        setLoading(false);
-      }, 0);
+      setLoading(false);
     }
   };
 
   const setActiveWorkspace = (workspace: Workspace | null) => {
     setActiveWorkspaceState(workspace);
+    if (workspace) {
+      try {
+        localStorage.setItem('docspace_cached_active_ws', JSON.stringify(workspace));
+      } catch {}
+    }
     if (user && workspace) {
       localStorage.setItem(`docspace_active_ws_${user.id}`, workspace.id);
     }

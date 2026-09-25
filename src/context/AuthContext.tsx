@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setUser(data);
-    router.replace('/dashboard');
+    window.location.href = '/dashboard';
     return data;
   };
 
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setUser(data);
-    router.replace('/dashboard');
+    window.location.href = '/dashboard';
     return data;
   };
 
@@ -141,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setUser(data);
-    router.replace('/dashboard');
+    window.location.href = '/dashboard';
     return data;
   };
 
@@ -155,7 +155,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore network errors on logout
     } finally {
       setUser(null);
-      router.replace('/login');
+      try {
+        localStorage.removeItem('docspace_cached_active_ws');
+        localStorage.removeItem('docspace_cached_workspaces');
+        sessionStorage.clear();
+      } catch {}
+      window.location.href = '/login';
     }
   };
 
