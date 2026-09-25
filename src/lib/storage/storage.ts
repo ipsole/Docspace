@@ -153,21 +153,18 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
     try {
       const remoteData = await firestoreGet(parsed.collection, parsed.docId);
       if (remoteData !== null) {
-        if (parsed.docId.endsWith('_members')) {
-          try {
-            const localRaw = await fs.readFile(filePath, 'utf-8').catch(() => null);
-            if (localRaw) {
-              const localParsed = JSON.parse(localRaw);
-              const remoteMembers = Array.isArray(remoteData) ? remoteData : (remoteData as any).items || [];
-              if (Array.isArray(localParsed) && localParsed.length > remoteMembers.length) {
-                // Local disk has more recent members, resync to Firestore!
-                firestoreSet(parsed.collection, parsed.docId, localParsed).catch(() => {});
-                return localRaw;
-              }
-            }
-          } catch {}
+        // If Firestore stored an array wrapped as { items: [...] }, unwrap it transparently
+        let dataToReturn = remoteData;
+        if (
+          remoteData &&
+          typeof remoteData === 'object' &&
+          !Array.isArray(remoteData) &&
+          Array.isArray((remoteData as any).items) &&
+          Object.keys(remoteData).length === 1
+        ) {
+          dataToReturn = (remoteData as any).items;
         }
-        return JSON.stringify(remoteData);
+        return JSON.stringify(dataToReturn);
       }
     } catch (err) {
       console.error(`Firestore sync read error [${parsed.collection}/${parsed.docId}]:`, err);

@@ -3,7 +3,7 @@ import path from 'path';
 import { Conversation, Message } from '../storage/models';
 import { safeReadFile, safeWriteFile, STORAGE_ROOT, enqueueTask, loadConversation, listConversations as storageListConversations } from '../storage/storage';
 import { isFirestoreEnabled } from '../storage/firestoreAdapter';
-import { listWorkspaceMembers } from './workspace';
+import { listWorkspaceMembers, checkWorkspaceAccess } from './workspace';
 import { chatEmitter } from '../storage/eventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -16,11 +16,10 @@ async function ensureDirs() {
   await fs.mkdir(MSG_DIR, { recursive: true });
 }
 
-export async function listConversations(workspaceId: string, userId: string): Promise<Conversation[]> {
+export async function listConversations(workspaceId: string, userId: string, role?: string): Promise<Conversation[]> {
   // Check if user is a member of the workspace
-  const workspaceMembers = await listWorkspaceMembers(workspaceId);
-  const isMember = workspaceMembers.some(m => m.userId === userId);
-  if (!isMember) {
+  const hasAccess = await checkWorkspaceAccess(workspaceId, { id: userId, role });
+  if (!hasAccess) {
     throw new Error('Forbidden: User is not a member of this workspace');
   }
 

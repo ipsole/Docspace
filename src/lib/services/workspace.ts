@@ -50,9 +50,18 @@ export async function createWorkspace(name: string, ownerId: string): Promise<Wo
 }
 
 export async function getWorkspace(id: string): Promise<Workspace | null> {
+  if (isFirestoreEnabled()) {
+    const { firestoreGet } = await import('../storage/firestoreAdapter');
+    const ws = await firestoreGet<Workspace>('workspaces', id);
+    if (ws) return ws;
+  }
   const content = await safeReadFile(path.join(WORKSPACE_DIR, `${id}.json`));
   if (!content) return null;
-  return JSON.parse(content) as Workspace;
+  try {
+    return JSON.parse(content) as Workspace;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateWorkspace(id: string, name: string, logoUrl?: string | null): Promise<Workspace> {
@@ -79,7 +88,7 @@ export async function listWorkspacesForUser(userId: string): Promise<Workspace[]
     const wsMap = new Map<string, Workspace>();
 
     for (const doc of docs) {
-      if (!doc.id.endsWith('_members') && !doc.id.endsWith('_requests')) {
+      if (!doc.id.includes('_')) {
         wsMap.set(doc.id, doc.data as Workspace);
       }
     }
@@ -94,10 +103,17 @@ export async function listWorkspacesForUser(userId: string): Promise<Workspace[]
         if (members.some(m => m.userId === userId)) {
           const wsId = doc.id.replace('_members', '');
           const ws = wsMap.get(wsId);
-          if (ws) {
+          if (ws && !workspaces.some(w => w.id === ws.id)) {
             workspaces.push(ws);
           }
         }
+      }
+    }
+
+    // Ensure workspace owners always have access to their workspaces
+    for (const [id, ws] of wsMap) {
+      if (ws.ownerId === userId && !workspaces.some(w => w.id === id)) {
+        workspaces.push(ws);
       }
     }
 
@@ -272,7 +288,12 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
   if (!content) return [];
 
   try {
-    const members = JSON.parse(content) as WorkspaceMember[];
+    const raw = JSON.parse(content);
+    const members: WorkspaceMember[] = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+      ? raw.items
+      : [];
     const result: WorkspaceMemberWithProfile[] = [];
 
     for (const m of members) {
@@ -407,4 +428,12 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
   await safeDeleteFile(path.join(WORKSPACE_DIR, `${workspaceId}.json`));
   await safeDeleteFile(path.join(WORKSPACE_DIR, `${workspaceId}_members.json`));
   await safeDeleteFile(path.join(WORKSPACE_DIR, `${workspaceId}_requests.json`));
+}
+
+export async function checkWorkspaceAccess(workspaceId: string, user: { id: string; role?: string }): Promise<boolean> {
+  if (user.role === 'admin') return true;
+  const ws = await getWorkspace(workspaceId);
+  if (ws && ws.ownerId === user.id) return true;
+  const members = await listWorkspaceMembers(workspaceId);
+  return members.some(m => m.userId === user.id);
 }

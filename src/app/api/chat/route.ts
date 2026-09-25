@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
 
-    const convos = await listConversations(workspaceId, user.id);
+    const convos = await listConversations(workspaceId, user.id, user.role);
     return NextResponse.json(convos);
   } catch (error: any) {
     console.error('Chat GET error:', error);
