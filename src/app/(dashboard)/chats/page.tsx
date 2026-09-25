@@ -139,6 +139,23 @@ interface CalendarEvent {
 
 const EMOJI_LIST = ['👍','❤️','😂','😮','😢','🎉','🔥','👏'];
 
+const getStoredItem = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(key) || sessionStorage.getItem(key) || null;
+  } catch {
+    return null;
+  }
+};
+
+const setStoredItem = (key: string, value: string): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, value);
+    sessionStorage.setItem(key, value);
+  } catch {}
+};
+
 export default function ChatsPage() {
   const { user } = useAuth();
   const { activeWorkspace, getTabAccess, currentMember } = useWorkspace();
@@ -155,7 +172,7 @@ export default function ChatsPage() {
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
-      const cached = sessionStorage.getItem('cached_conversations');
+      const cached = getStoredItem('cached_conversations');
       if (!cached) return [];
       const list: Conversation[] = JSON.parse(cached);
       return Array.from(new Map(list.map(c => [c.id, c])).values());
@@ -164,8 +181,8 @@ export default function ChatsPage() {
   const [activeConv, setActiveConv] = useState<Conversation | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
-      const savedId = sessionStorage.getItem('last_active_chat_id');
-      const cached = sessionStorage.getItem('cached_conversations');
+      const savedId = getStoredItem('last_active_chat_id');
+      const cached = getStoredItem('cached_conversations');
       if (savedId && cached) {
         const list: Conversation[] = JSON.parse(cached);
         return list.find(c => c.id === savedId) || null;
@@ -184,9 +201,9 @@ export default function ChatsPage() {
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
-      const savedId = sessionStorage.getItem('last_active_chat_id');
+      const savedId = getStoredItem('last_active_chat_id');
       if (savedId) {
-        const cached = sessionStorage.getItem(`cached_msgs_${savedId}`);
+        const cached = getStoredItem(`cached_msgs_${savedId}`);
         return cached ? JSON.parse(cached) : [];
       }
       return [];
@@ -197,15 +214,15 @@ export default function ChatsPage() {
   const [loadingConvs, setLoadingConvs] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
-      return sessionStorage.getItem('cached_conversations') ? false : true;
+      return getStoredItem('cached_conversations') ? false : true;
     } catch { return true; }
   });
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [input, setInput] = useState(() => {
     if (typeof window === 'undefined') return '';
     try {
-      const savedId = sessionStorage.getItem('last_active_chat_id');
-      return savedId ? (sessionStorage.getItem(`chat_draft_${savedId}`) || '') : '';
+      const savedId = getStoredItem('last_active_chat_id');
+      return savedId ? (getStoredItem(`chat_draft_${savedId}`) || '') : '';
     } catch { return ''; }
   });
   const [sending, setSending] = useState(false);
@@ -598,24 +615,53 @@ export default function ChatsPage() {
         const uniqueNorms = Array.from(new Map(norms.map(c => [c.id, c])).values());
         setConversations(uniqueNorms);
         try {
-          sessionStorage.setItem('cached_conversations', JSON.stringify(uniqueNorms));
+          setStoredItem('cached_conversations', JSON.stringify(uniqueNorms));
         } catch {}
 
         // Restore activeConv if not set or update it with fresh details
-        const savedChatId = typeof window !== 'undefined' ? sessionStorage.getItem('last_active_chat_id') : null;
+        const savedChatId = getStoredItem('last_active_chat_id');
         setActiveConv(prev => {
           if (prev) {
-            return norms.find(c => c.id === prev.id) || prev;
+            return uniqueNorms.find(c => c.id === prev.id) || prev;
           }
           if (savedChatId) {
-            return norms.find(c => c.id === savedChatId) || null;
+            return uniqueNorms.find(c => c.id === savedChatId) || uniqueNorms[0] || null;
           }
-          return null;
+          return uniqueNorms.length > 0 ? uniqueNorms[0] : null;
         });
       }
     } catch { /* ignore */ }
     finally { setLoadingConvs(false); }
   }, [activeWorkspace, normalizeConversation]);
+
+  // Immediate synchronous cache hydration on browser mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const cached = getStoredItem('cached_conversations');
+      if (cached) {
+        const list: Conversation[] = JSON.parse(cached);
+        const unique = Array.from(new Map(list.map(c => [c.id, c])).values());
+        if (unique.length > 0) {
+          setConversations(unique);
+          setLoadingConvs(false);
+          const savedId = getStoredItem('last_active_chat_id');
+          const target = savedId ? unique.find(c => c.id === savedId) || unique[0] : unique[0];
+          if (target) {
+            setActiveConv(target);
+            const cachedMsgs = getStoredItem(`cached_msgs_${target.id}`);
+            if (cachedMsgs) {
+              const msgs = JSON.parse(cachedMsgs);
+              if (Array.isArray(msgs) && msgs.length > 0) {
+                setMessages(msgs);
+                messagesRef.current = msgs;
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+  }, []);
 
   const fetchWorkspaceTasks = async () => {
     if (!activeWorkspace) return;
@@ -1332,12 +1378,12 @@ export default function ChatsPage() {
   }, [crmEvents, activeLinkedClient]);
 
   const fetchMessages = useCallback(async (chatId: string, showLoader = false) => {
-    // If we have cached messages in sessionStorage, hydrate them immediately
-    if (typeof window !== 'undefined') {
+    // If we have cached messages in storage, hydrate them immediately
+    const cached = getStoredItem(`cached_msgs_${chatId}`);
+    if (cached) {
       try {
-        const cached = sessionStorage.getItem(`cached_msgs_${chatId}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
           setMessages(parsed);
           messagesRef.current = parsed;
           showLoader = false; // Do not show blocking spinner when cached msgs exist
@@ -1354,9 +1400,9 @@ export default function ChatsPage() {
         setMessages(norms);
         messagesRef.current = norms;
         try {
-          sessionStorage.setItem(`cached_msgs_${chatId}`, JSON.stringify(norms));
+          setStoredItem(`cached_msgs_${chatId}`, JSON.stringify(norms));
         } catch {}
-        setTimeout(() => scrollToBottom(), 80);
+        setTimeout(() => scrollToBottom(), 40);
       }
     } catch { /* ignore */ }
     finally { if (showLoader) setLoadingMsgs(false); }
@@ -1402,8 +1448,18 @@ export default function ChatsPage() {
         if (activeConvIdRef.current === normMsg.chatId) {
           setMessages(prev => {
             if (prev.some(m => m.id === normMsg.id)) return prev;
-            const updated = [...prev, normMsg];
+            const tempIdx = prev.findIndex(m => m.id.startsWith('temp_') && m.senderId === normMsg.senderId && m.content === normMsg.content);
+            let updated: Message[];
+            if (tempIdx !== -1) {
+              updated = [...prev];
+              updated[tempIdx] = normMsg;
+            } else {
+              updated = [...prev, normMsg];
+            }
             messagesRef.current = updated;
+            try {
+              setStoredItem(`cached_msgs_${normMsg.chatId}`, JSON.stringify(updated));
+            } catch {}
             return updated;
           });
           const isOwn = normMsg.senderId === userRef.current?.id;
@@ -1421,7 +1477,7 @@ export default function ChatsPage() {
         } else {
           // 2. If message is for a different conversation in the active workspace
           setConversations(prev => {
-            return prev.map(c => {
+            const next = prev.map(c => {
               if (c.id === normMsg.chatId) {
                 return {
                   ...c,
@@ -1432,6 +1488,10 @@ export default function ChatsPage() {
               }
               return c;
             }).sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
+            try {
+              setStoredItem('cached_conversations', JSON.stringify(next));
+            } catch {}
+            return next;
           });
         }
 
@@ -1656,18 +1716,30 @@ export default function ChatsPage() {
 
     if (editingMsg) {
       if (!editContent.trim()) return;
+      const newText = editContent.trim();
+      const targetId = editingMsg.id;
+      setEditingMsg(null);
+      setEditContent('');
+
+      // Optimistically update message in chat in 0ms
+      setMessages(prev => {
+        const updated = prev.map(m => m.id === targetId ? { ...m, content: newText, isEdited: true } : m);
+        messagesRef.current = updated;
+        try { setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated)); } catch {}
+        return updated;
+      });
+
       try {
         const res = await fetch('/api/chat/message', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chatId: activeConv.id,
-            messageId: editingMsg.id,
-            content: editContent.trim()
+            messageId: targetId,
+            content: newText
           }),
         });
         if (res.ok) {
-          setEditingMsg(null); setEditContent('');
           const updatedMsg = await res.json();
           const normMsg = normalizeMessage(updatedMsg);
           setMessages(prev => prev.map(m => m.id === normMsg.id ? normMsg : m));
@@ -1677,31 +1749,102 @@ export default function ChatsPage() {
     }
 
     if (!input.trim()) return;
-    setSending(true);
+    const content = input.trim();
+    const replyMessage = replyingTo;
+
+    // 1. Immediately clear input & draft (0ms instant response)
+    setInput('');
+    setReplyingTo(null);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem(`chat_draft_${activeConv.id}`);
+        localStorage.removeItem(`chat_draft_${activeConv.id}`);
+      } catch {}
+    }
+
+    // 2. Create optimistic message
+    const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const optimisticMsg: Message = {
+      id: tempId,
+      chatId: activeConv.id,
+      senderId: user.id,
+      senderName: user.displayName || user.username || 'You',
+      senderAvatar: user.avatar || null,
+      content,
+      createdAt: new Date().toISOString(),
+      reactions: {},
+      replyTo: replyMessage?.id || undefined,
+      attachments: [],
+      isEdited: false,
+      deleted: false,
+      pinned: false
+    };
+
+    // 3. Immediately display message in active chat view (0ms)
+    setMessages(prev => {
+      const updated = [...prev, optimisticMsg];
+      messagesRef.current = updated;
+      try {
+        setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 4. Immediately update conversation snippet in left sidebar and move to top (0ms)
+    setConversations(prev => {
+      const next = prev.map(c => {
+        if (c.id === activeConv.id) {
+          return {
+            ...c,
+            lastMessage: content,
+            lastMessageAt: optimisticMsg.createdAt
+          };
+        }
+        return c;
+      }).sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
+      try {
+        setStoredItem('cached_conversations', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setTimeout(() => scrollToBottom('auto'), 20);
+
+    // 5. Deliver to server in background
     try {
       const res = await fetch('/api/chat/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chatId: activeConv.id,
-          content: input.trim(),
-          replyTo: replyingTo?.id || undefined,
+          content,
+          replyTo: replyMessage?.id || undefined,
         }),
       });
       if (res.ok) {
         const savedMsg = await res.json();
         const normMsg = normalizeMessage(savedMsg);
-        setInput(''); setReplyingTo(null);
         setMessages(prev => {
-          if (prev.some(m => m.id === normMsg.id)) return prev;
-          const updated = [...prev, normMsg];
+          const idx = prev.findIndex(m => m.id === tempId || (m.id.startsWith('temp_') && m.content === content));
+          let updated: Message[];
+          if (idx !== -1) {
+            updated = [...prev];
+            updated[idx] = normMsg;
+          } else if (!prev.some(m => m.id === normMsg.id)) {
+            updated = [...prev, normMsg];
+          } else {
+            updated = prev;
+          }
           messagesRef.current = updated;
+          try {
+            setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+          } catch {}
           return updated;
         });
-        setTimeout(() => scrollToBottom('auto'), 20);
       }
-    } catch { /* ignore */ }
-    finally { setSending(false); }
+    } catch (err) {
+      console.error('Error delivering message:', err);
+    }
   };
 
   const handleFileUpload = async (file: File) => {
@@ -1760,19 +1903,23 @@ export default function ChatsPage() {
 
     const completely = confirm("Do you want to COMPLETELY delete this message from the database and history?\n\n- Click 'OK' to completely delete it (it will disappear entirely).\n- Click 'Cancel' to soft-delete / redact it (it will show 'This message was deleted').");
 
+    // 0ms instant optimistic update
+    setMessages(prev => {
+      let updated: Message[];
+      if (completely) {
+        updated = prev.filter(m => m.id !== msgId);
+      } else {
+        updated = prev.map(m => m.id === msgId ? { ...m, deleted: true, content: 'This message was deleted' } : m);
+      }
+      messagesRef.current = updated;
+      try { setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
     try {
       const res = await fetch(`/api/chat/message?chatId=${activeConv.id}&messageId=${msgId}&completely=${completely}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (completely) {
-          setMessages(prev => prev.filter(m => m.id !== msgId));
-        } else {
-          const updatedMsg = await res.json();
-          const normMsg = normalizeMessage(updatedMsg);
-          setMessages(prev => prev.map(m => m.id === normMsg.id ? normMsg : m));
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to delete message');
+      if (!res.ok) {
+        fetchMessages(activeConv.id);
       }
     } catch { /* ignore */ }
   };
@@ -1780,20 +1927,57 @@ export default function ChatsPage() {
 
 
   const handleReaction = async (msgId: string, emoji: string) => {
-    if (!activeConv) return;
+    if (!activeConv || !user) return;
     setShowEmojiPicker(null);
+
+    // Optimistically update reactions in 0ms
+    setMessages(prev => {
+      const updated = prev.map(m => {
+        if (m.id !== msgId) return m;
+        const currentReactions = m.reactions || {};
+        const currentUsers = currentReactions[emoji] || [];
+        const hasReacted = currentUsers.includes(user.id);
+        const nextUsers = hasReacted
+          ? currentUsers.filter(id => id !== user.id)
+          : [...currentUsers, user.id];
+        const nextReactions = { ...currentReactions };
+        if (nextUsers.length > 0) {
+          nextReactions[emoji] = nextUsers;
+        } else {
+          delete nextReactions[emoji];
+        }
+        return { ...m, reactions: nextReactions };
+      });
+      messagesRef.current = updated;
+      try {
+        setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
     try {
       await fetch('/api/chat/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageId: msgId, action: 'reaction', emoji }),
       });
-      fetchMessages(activeConv.id);
     } catch { /* ignore */ }
   };
 
   const handlePinMessage = async (msgId: string, currentPin: boolean) => {
     if (!activeConv) return;
+    const nextPin = !currentPin;
+
+    // Optimistically toggle pin in 0ms
+    setMessages(prev => {
+      const updated = prev.map(m => m.id === msgId ? { ...m, pinned: nextPin } : m);
+      messagesRef.current = updated;
+      try {
+        setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
     try {
       await fetch('/api/chat/message', {
         method: 'PUT',
@@ -1801,10 +1985,9 @@ export default function ChatsPage() {
         body: JSON.stringify({
           chatId: activeConv.id,
           messageId: msgId,
-          pinned: !currentPin
+          pinned: nextPin
         }),
       });
-      fetchMessages(activeConv.id);
     } catch { /* ignore */ }
   };
 
@@ -4087,10 +4270,11 @@ export default function ChatsPage() {
                   {/* Send */}
                   <button
                     type="submit"
-                    disabled={sending || (editingMsg ? !editContent.trim() : !input.trim())}
-                    className="p-2.5 bg-slate-900 dark:bg-slate-100 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white dark:text-slate-900 rounded-xl shrink-0 transition-all"
+                    disabled={editingMsg ? !editContent.trim() : !input.trim()}
+                    className="p-2.5 bg-slate-900 dark:bg-slate-100 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white dark:text-slate-900 rounded-xl shrink-0 transition-all cursor-pointer"
+                    title="Send message"
                   >
-                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    <Send className="h-4 w-4" />
                   </button>
                 </form>
               )}
