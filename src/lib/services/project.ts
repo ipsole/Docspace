@@ -43,15 +43,6 @@ export async function listProjects(workspaceId: string): Promise<Project[]> {
         try {
           const project = JSON.parse(content) as Project;
           if (project.workspaceId === workspaceId) {
-            if (project.clientId) {
-              const clientFile = path.join(clientsDir, `${project.clientId}.json`);
-              const clientExists = await fs.stat(clientFile).then(() => true).catch(() => false);
-              if (!clientExists) {
-                // Client does not exist: remove project and its tasks
-                await deleteProject(project.id);
-                continue;
-              }
-            }
             projects.push(project);
           }
         } catch {}
@@ -205,15 +196,6 @@ export async function listTasksByProject(projectId: string): Promise<Task[]> {
         try {
           const task = JSON.parse(content) as Task;
           if (task.projectId === projectId) {
-            if (task.clientId) {
-              const clientFile = path.join(clientsDir, `${task.clientId}.json`);
-              const clientExists = await fs.stat(clientFile).then(() => true).catch(() => false);
-              if (!clientExists) {
-                // Non-existing client: never store or return tasks for non-existing clients
-                await safeDeleteFile(filePath);
-                continue;
-              }
-            }
             tasks.push(task);
           }
         } catch {}
@@ -242,9 +224,13 @@ export async function createTask(
 ): Promise<Task> {
   await ensureDirs();
   if (data.clientId) {
-    const client = await getClient(data.clientId);
-    if (!client) {
-      throw new Error(`Cannot create task: client ${data.clientId} does not exist`);
+    try {
+      const client = await getClient(data.clientId);
+      if (!client) {
+        console.warn(`Client ${data.clientId} not found when creating task, continuing.`);
+      }
+    } catch (e) {
+      console.warn(`Error checking client ${data.clientId}:`, e);
     }
   }
 
@@ -270,10 +256,13 @@ export async function updateTask(id: string, updates: Partial<Task>): Promise<Ta
   if (!task) throw new Error('Task not found');
 
   if (updates.clientId) {
-    const clientsDir = path.join(STORAGE_ROOT, 'clients');
-    const clientExists = await fs.stat(path.join(clientsDir, `${updates.clientId}.json`)).then(() => true).catch(() => false);
-    if (!clientExists) {
-      throw new Error(`Cannot update task: client ${updates.clientId} does not exist in clients directory`);
+    try {
+      const client = await getClient(updates.clientId);
+      if (!client) {
+        console.warn(`Client ${updates.clientId} not found when updating task, continuing.`);
+      }
+    } catch (e) {
+      console.warn(`Error checking client ${updates.clientId}:`, e);
     }
   }
 

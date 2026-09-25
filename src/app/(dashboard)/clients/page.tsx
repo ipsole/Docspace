@@ -2984,9 +2984,24 @@ export default function ClientsPage() {
                 {/* 2. PROJECTS & STAGES TAB */}
                 {activeTab === 'projects' && (
                   <div className="space-y-6">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Client Projects ({linkedProjects.length})</span>
+                      <a
+                        href="/projects"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl text-xs font-bold hover:opacity-90 transition-opacity"
+                      >
+                        <Plus className="h-3 w-3" /> Go to Projects
+                      </a>
+                    </div>
                     {linkedProjects.length === 0 ? (
-                      <div className="text-center py-12 text-slate-400 text-xs italic">
-                        No projects linked to this client. Link them by changing project clients.
+                      <div className="text-center py-12 text-slate-400 text-xs italic space-y-3">
+                        <p>No projects linked to this client yet.</p>
+                        <a
+                          href="/projects"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold not-italic hover:bg-slate-200 transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Create Project & Assign Client
+                        </a>
                       </div>
                     ) : (
                       linkedProjects.map(proj => {

@@ -243,6 +243,7 @@ export default function ProjectsPage() {
   const [projDesc, setProjDesc] = useState('');
   const [projBusinessType, setProjBusinessType] = useState('B2B');
   const [projStatus, setProjStatus] = useState<Project['status']>('planning');
+  const [projClientId, setProjClientId] = useState('');
   const [creatingProj, setCreatingProj] = useState(false);
 
   // Side drawer properties editing
@@ -376,6 +377,7 @@ export default function ProjectsPage() {
     e.preventDefault();
     if (!activeWorkspace || !projName.trim()) return;
     setCreatingProj(true);
+    const chosenClientId = projClientId.trim() ? projClientId.trim() : null;
     try {
       const res = await fetch('/api/projects', {
         method: editingProject ? 'PATCH' : 'POST',
@@ -385,16 +387,31 @@ export default function ProjectsPage() {
           workspaceId: activeWorkspace.id,
           name: projName.trim(),
           description: projDesc.trim(),
-          clientId: null,
+          clientId: chosenClientId,
           businessType: projBusinessType || 'B2B',
           status: projStatus,
         }),
       });
       if (res.ok) {
+        const savedProject = await res.json();
+        // Optimistic update
+        setProjects(prev => {
+          if (editingProject) {
+            return prev.map(p => p.id === editingProject.id ? { ...p, ...savedProject, clientId: chosenClientId } : p);
+          } else {
+            const newP: Project = { ...savedProject, tasks: [], clientId: chosenClientId };
+            return [newP, ...prev];
+          }
+        });
+        if (!editingProject) {
+          setSelectedProject({ ...savedProject, tasks: [], clientId: chosenClientId });
+        } else if (selectedProject?.id === editingProject.id) {
+          setSelectedProject(prev => prev ? { ...prev, ...savedProject, clientId: chosenClientId } : null);
+        }
         setShowAddProject(false);
         setEditingProject(null);
-        setProjName(''); setProjDesc(''); setProjBusinessType('B2B'); setProjStatus('planning');
-        await fetchProjects();
+        setProjName(''); setProjDesc(''); setProjClientId(''); setProjBusinessType('B2B'); setProjStatus('planning');
+        fetchProjects();
       }
     } catch (err) {
       console.error(err);
@@ -403,10 +420,11 @@ export default function ProjectsPage() {
     }
   };
 
-  const openCreateProject = () => {
+  const openCreateProject = (defaultClientId?: string | React.MouseEvent) => {
     setEditingProject(null);
     setProjName('');
     setProjDesc('');
+    setProjClientId(typeof defaultClientId === 'string' ? defaultClientId : '');
     setProjBusinessType('B2B');
     setProjStatus('planning');
     setShowAddProject(true);
@@ -416,6 +434,7 @@ export default function ProjectsPage() {
     setEditingProject(project);
     setProjName(project.name);
     setProjDesc(project.description || '');
+    setProjClientId(project.clientId || '');
     setProjBusinessType(project.businessType || 'B2B');
     setProjStatus(project.status);
     setShowAddProject(true);
@@ -430,17 +449,22 @@ export default function ProjectsPage() {
       variant: 'danger',
     });
     if (!ok) return;
+
+    // Optimistic delete
+    setProjects(prev => prev.filter(p => p.id !== projId));
+    if (selectedProject?.id === projId) {
+      setSelectedProject(null);
+      setSelectedTask(null);
+    }
+
     try {
       await fetch(`/api/projects?id=${projId}&workspaceId=${activeWorkspace.id}`, {
         method: 'DELETE'
       });
-      if (selectedProject?.id === projId) {
-        setSelectedProject(null);
-        setSelectedTask(null);
-      }
       fetchProjects();
     } catch (err) {
       console.error(err);
+      fetchProjects();
     }
   };
 
@@ -462,6 +486,44 @@ export default function ProjectsPage() {
     const title = inlineAddTitle.trim();
     if (!title) return;
     setSavingInline(true);
+
+    const tempId = 'temp_' + Date.now();
+    const defaultClientId = (selectedProject.clientId && clients.some(c => c.id === selectedProject.clientId && c.status !== 'inactive'))
+      ? selectedProject.clientId
+      : null;
+
+    const optimisticTask: Task = {
+      id: tempId,
+      projectId: selectedProject.id,
+      workspaceId: activeWorkspace.id,
+      title,
+      description: '',
+      assigneeId: null,
+      dueDate: null,
+      priority: 'medium',
+      status: inlineAddStatus || 'todo',
+      tags: [],
+      subtasks: [],
+      dependencies: [],
+      timeSpentSec: 0,
+      money: null,
+      clientId: defaultClientId,
+      createdAt: new Date().toISOString(),
+      attachments: [],
+      comments: []
+    };
+
+    // 1. Optimistic update: instantly render the new stage item in the table
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProject.id) return p;
+      return { ...p, tasks: [...(p.tasks || []), optimisticTask] };
+    }));
+    setSelectedProject(prev => prev ? { ...prev, tasks: [...(prev.tasks || []), optimisticTask] } : null);
+    setInlineAddStatus(null);
+    setInlineAddTitle('');
+    handleSelectTask(optimisticTask, 'edit');
+
+    // 2. Persist to API
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'POST',
@@ -472,33 +534,66 @@ export default function ProjectsPage() {
           title,
           description: '',
           priority: 'medium',
-          status: inlineAddStatus,
+          status: inlineAddStatus || 'todo',
           dueDate: null,
           money: null,
-          clientId: (selectedProject.clientId && clients.some(c => c.id === selectedProject.clientId && c.status !== 'inactive')) ? selectedProject.clientId : null,
+          clientId: defaultClientId,
           subtasks: [],
           tags: []
         }),
       });
       if (res.ok) {
-        const newTask = await res.json();
-        setInlineAddStatus(null);
-        setInlineAddTitle('');
+        const realTask: Task = await res.json();
+        setProjects(prev => prev.map(p => {
+          if (p.id !== selectedProject.id) return p;
+          return {
+            ...p,
+            tasks: (p.tasks || []).map(t => t.id === tempId ? realTask : t)
+          };
+        }));
+        setSelectedProject(prev => prev ? {
+          ...prev,
+          tasks: (prev.tasks || []).map(t => t.id === tempId ? realTask : t)
+        } : null);
+        setSelectedTask(prev => prev?.id === tempId ? realTask : prev);
+      } else {
         await fetchProjects();
-        handleSelectTask(newTask, 'edit');
       }
     } catch (err) {
       console.error(err);
+      await fetchProjects();
     } finally {
       setSavingInline(false);
     }
   };
 
-
-
   const handleUpdateTaskStatus = async (task: Task, nextStatus: 'todo' | 'in_progress' | 'review' | 'done', e?: React.ChangeEvent<HTMLSelectElement> | React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!activeWorkspace) return;
+
+    // 1. Optimistic UI update (instant 0ms response)
+    if (selectedTask?.id === task.id) {
+      setSelectedTask(prev => prev ? { ...prev, status: nextStatus } : null);
+      setDrawerStatus(nextStatus);
+    }
+    setProjects(prevProjects => prevProjects.map(proj => {
+      if (proj.id !== task.projectId) return proj;
+      const updatedTasks = (proj.tasks || []).map(t => t.id === task.id ? { ...t, status: nextStatus } : t);
+      const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+      const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+      return { ...proj, tasks: updatedTasks, progress };
+    }));
+    if (selectedProject?.id === task.projectId) {
+      setSelectedProject(prev => {
+        if (!prev) return null;
+        const updatedTasks = (prev.tasks || []).map(t => t.id === task.id ? { ...t, status: nextStatus } : t);
+        const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+        const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+        return { ...prev, tasks: updatedTasks, progress };
+      });
+    }
+
+    // 2. Background sync
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'PATCH',
@@ -509,15 +604,12 @@ export default function ProjectsPage() {
           status: nextStatus
         }),
       });
-      if (res.ok) {
-        const updated = await res.json();
-        if (selectedTask?.id === task.id) {
-          setSelectedTask(updated);
-        }
-        fetchProjects();
+      if (!res.ok) {
+        await fetchProjects();
       }
     } catch (err) {
       console.error(err);
+      await fetchProjects();
     }
   };
 
@@ -548,22 +640,47 @@ export default function ProjectsPage() {
   // Generic Task Field updates (saves metadata immediately to API)
   const handleUpdateTaskField = async (fields: Partial<Task>) => {
     if (!selectedTask || !activeWorkspace) return;
+
+    // 1. Optimistic update (instant 0ms response on screen)
+    const taskId = selectedTask.id;
+    const projId = selectedTask.projectId;
+    setSelectedTask(prev => prev ? { ...prev, ...fields } : null);
+    if (fields.clientId !== undefined) {
+      setDrawerClientId(fields.clientId || '');
+    }
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projId) return p;
+      return {
+        ...p,
+        tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, ...fields } : t)
+      };
+    }));
+    if (selectedProject?.id === projId) {
+      setSelectedProject(prev => prev ? {
+        ...prev,
+        tasks: (prev.tasks || []).map(t => t.id === taskId ? { ...t, ...fields } : t)
+      } : null);
+    }
+
+    // 2. Persist in background
     setSavingTaskField(true);
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: selectedTask.id,
+          id: taskId,
           workspaceId: activeWorkspace.id,
           ...fields
         })
       });
-      if (res.ok) {
+      if (!res.ok) {
+        console.error('Failed to update task field:', await res.text());
         await fetchProjects();
       }
     } catch (err) {
       console.error(err);
+      await fetchProjects();
     } finally {
       setSavingTaskField(false);
     }
@@ -958,20 +1075,34 @@ export default function ProjectsPage() {
       variant: 'danger',
     });
     if (!ok) return;
+
+    // Optimistic remove (instant 0ms response)
+    if (selectedTask?.id === taskId) {
+      setSelectedTask(null);
+    }
+    setProjects(prev => prev.map(p => ({
+      ...p,
+      tasks: (p.tasks || []).filter(t => t.id !== taskId)
+    })));
+    setSelectedProject(prev => prev ? {
+      ...prev,
+      tasks: (prev.tasks || []).filter(t => t.id !== taskId)
+    } : null);
+
     try {
       await fetch(`/api/projects/tasks?id=${taskId}&workspaceId=${activeWorkspace.id}`, { method: 'DELETE' });
-      if (selectedTask?.id === taskId) {
-        setSelectedTask(null);
-      }
       fetchProjects();
     } catch (err) {
       console.error(err);
+      fetchProjects();
     }
   };
 
   // Client name getter
   const getClientName = (id?: string | null) => {
-    return clients.find(c => c.id === id)?.companyName || '—';
+    if (!id) return '—';
+    const found = clients.find(c => c.id === id);
+    return found?.companyName || found?.contactPerson || '—';
   };
 
   // Only active clients for selection dropdowns and suggestions (exclude inactive clients)
@@ -1081,11 +1212,18 @@ export default function ProjectsPage() {
               }}
               options={projects.map(proj => ({
                 value: proj.id,
-                label: `${proj.name} (${proj.businessType || 'B2B'})`
+                label: `${proj.name} (${proj.businessType || 'B2B'})${proj.clientId ? ` • ${getClientName(proj.clientId)}` : ''}`
               }))}
               buttonClassName="bg-transparent text-xs font-black text-slate-800 dark:text-slate-100 cursor-pointer flex items-center gap-1.5 focus:outline-none"
               title="Select Active Project"
             />
+
+            {selectedProject?.clientId && (
+              <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full shrink-0">
+                <Building2 className="h-2.5 w-2.5 text-slate-400" />
+                <span>{getClientName(selectedProject.clientId)}</span>
+              </span>
+            )}
             
             {selectedProject && (
               <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2 ml-1 shrink-0">
@@ -1314,10 +1452,17 @@ export default function ProjectsPage() {
                                             </div>
                                           </td>
                                           
-                                          <td className="p-3 text-slate-505 truncate max-w-[120px]">
+                                          <td 
+                                            className="p-3 text-slate-500 truncate max-w-[130px] cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                            onClick={e => {
+                                              e.stopPropagation();
+                                              handleSelectTask(task, 'edit');
+                                            }}
+                                            title="Click to assign or change client"
+                                          >
                                             <span className="flex items-center gap-1">
                                               <Building2 className="h-3 w-3 shrink-0 text-slate-400" />
-                                              {getClientName(task.clientId)}
+                                              <span className="truncate">{getClientName(task.clientId)}</span>
                                             </span>
                                           </td>
 
@@ -1789,8 +1934,19 @@ export default function ProjectsPage() {
                 </div>
 
                 {/* Client */}
-                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3 space-y-1.5">
-                  <span className="text-slate-400 font-bold uppercase tracking-widest text-[8px]">Client</span>
+                <div 
+                  className={`bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3 space-y-1.5 ${drawerMode === 'view' ? 'cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 transition-all' : ''}`}
+                  onClick={() => {
+                    if (drawerMode === 'view') setDrawerMode('edit');
+                  }}
+                  title={drawerMode === 'view' ? 'Click to change client' : undefined}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-bold uppercase tracking-widest text-[8px]">Client</span>
+                    {drawerMode === 'view' && (
+                      <span className="text-[9px] font-bold text-slate-400 hover:text-indigo-600 transition-colors">Edit</span>
+                    )}
+                  </div>
                   {drawerMode === 'view' ? (
                     <div className="font-semibold text-slate-800 dark:text-slate-200">
                       {getClientName(drawerClientId) || '—'}
@@ -1803,10 +1959,14 @@ export default function ProjectsPage() {
                         setDrawerClientId(val);
                         handleUpdateTaskField({ clientId: val || null });
                       }}
-                      className="w-full bg-transparent text-xs font-semibold focus:outline-none text-slate-800 dark:text-slate-200"
+                      className="w-full bg-transparent text-xs font-semibold focus:outline-none text-slate-800 dark:text-slate-200 cursor-pointer"
                     >
                       <option value="">No Client</option>
-                      {activeClients.map(c => <option key={c.id} value={c.id}>{c.companyName}</option>)}
+                      {activeClients.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.companyName || c.contactPerson || 'Unnamed Client'}
+                        </option>
+                      ))}
                     </select>
                   )}
                 </div>
@@ -2281,6 +2441,24 @@ export default function ProjectsPage() {
                   <option value="Enterprise">Enterprise</option>
                   <option value="SaaS">SaaS</option>
                   <option value="Agency">Agency</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Assign Client (Optional)
+                </label>
+                <select
+                  value={projClientId}
+                  onChange={e => setProjClientId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs focus:outline-none cursor-pointer"
+                >
+                  <option value="">No Client (Internal Project)</option>
+                  {clients.filter(c => c.status !== 'inactive').map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.companyName || c.contactPerson || 'Unnamed Client'}
+                    </option>
+                  ))}
                 </select>
               </div>
 
