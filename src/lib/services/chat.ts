@@ -241,6 +241,7 @@ export async function sendMessage(
   if (!hasAccess) {
     throw new Error('Forbidden: Sender is not a member of this workspace');
   }
+  const workspaceMembers = await listWorkspaceMembers(workspaceId);
 
   // Verify chat exists
   const convoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
