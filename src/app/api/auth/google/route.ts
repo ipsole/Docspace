@@ -4,6 +4,9 @@ import { listUsers, updateUser } from '@/lib/storage/storage';
 import { startSession } from '@/lib/auth';
 import { logInfo, logError } from '@/lib/storage/logger';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -117,7 +120,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Google Auth error:', error);
-    await logError('AUTH', 'Google login error', { error: error.message });
+    try {
+      await logError('AUTH', 'Google login error', { error: error.message });
+    } catch {}
     return NextResponse.json({ error: error.message || 'Authentication failed' }, { status: 500 });
   }
 }

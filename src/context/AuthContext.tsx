@@ -106,7 +106,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       data = JSON.parse(rawText);
     } catch {
-      throw new Error(`Server returned status ${res.status}: ${rawText.slice(0, 80).replace(/<[^>]*>/g, '').trim() || 'Internal Error'}`);
+      const cleanSnippet = rawText
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100);
+      throw new Error(`Server returned status ${res.status}: ${cleanSnippet || 'Internal Server Error'}`);
     }
 
     if (!res.ok) {

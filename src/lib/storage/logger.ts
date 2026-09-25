@@ -24,18 +24,17 @@ export async function log(
   message: string,
   details?: Record<string, any>
 ): Promise<void> {
-  await ensureDirs();
-  const entry: LogEntry = {
-    timestamp: new Date().toISOString(),
-    level,
-    category,
-    message,
-    details
-  };
-
-  const line = JSON.stringify(entry) + '\n';
   try {
-    // Append to file (using simple appendFile)
+    await ensureDirs();
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level,
+      category,
+      message,
+      details
+    };
+
+    const line = JSON.stringify(entry) + '\n';
     await fs.appendFile(LOG_FILE, line, 'utf-8');
   } catch (error) {
     console.error('Failed to write log entry:', error);

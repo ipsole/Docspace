@@ -54,12 +54,14 @@ export async function ensureDirs(): Promise<void> {
       const dirPath = path.join(STORAGE_ROOT, dir);
       await fs.mkdir(dirPath, { recursive: true });
     }
-  } catch (err) {
-    if (!isFirestoreEnabled()) {
-      throw err;
+    dirsCreated = true;
+  } catch (err: any) {
+    if (err?.code === 'EROFS' || isFirestoreEnabled()) {
+      dirsCreated = true;
+      return;
     }
+    throw err;
   }
-  dirsCreated = true;
 }
 
 // Queue of write operations per file path to avoid concurrent write issues and JSON corruption.
