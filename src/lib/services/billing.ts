@@ -2,16 +2,21 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Invoice, Payment, InvoiceLineItem } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 
 const INVOICES_DIR = path.join(STORAGE_ROOT, 'invoices');
 const PAYMENTS_DIR = path.join(STORAGE_ROOT, 'payments');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(INVOICES_DIR, { recursive: true });
-  await fs.mkdir(PAYMENTS_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(INVOICES_DIR, { recursive: true });
+    await fs.mkdir(PAYMENTS_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 // Compute totals for line items
@@ -69,6 +74,10 @@ export async function listInvoices(workspaceId: string): Promise<Invoice[]> {
 }
 
 export async function getInvoice(id: string): Promise<Invoice | null> {
+  if (isFirestoreEnabled()) {
+    const inv = await firestoreGet<Invoice>('invoices', id);
+    if (inv) return inv;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(INVOICES_DIR, `${id}.json`));
   if (!content) return null;

@@ -10,10 +10,15 @@ import { v4 as uuidv4 } from 'uuid';
 const CONV_DIR = path.join(STORAGE_ROOT, 'conversations');
 const MSG_DIR = path.join(STORAGE_ROOT, 'messages');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(CONV_DIR, { recursive: true });
-  await fs.mkdir(MSG_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(CONV_DIR, { recursive: true });
+    await fs.mkdir(MSG_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 export async function listConversations(workspaceId: string, userId: string, role?: string): Promise<Conversation[]> {

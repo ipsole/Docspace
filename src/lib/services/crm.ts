@@ -2,17 +2,22 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Client, CRMLead } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 import { recalculateProjectProgress } from './project';
 
 const CLIENTS_DIR = path.join(STORAGE_ROOT, 'clients');
 const CRM_DIR = path.join(STORAGE_ROOT, 'crm');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(CLIENTS_DIR, { recursive: true });
-  await fs.mkdir(CRM_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(CLIENTS_DIR, { recursive: true });
+    await fs.mkdir(CRM_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 // --- CLIENT OPERATIONS ---
@@ -50,6 +55,10 @@ export async function listClients(workspaceId: string): Promise<Client[]> {
 }
 
 export async function getClient(id: string): Promise<Client | null> {
+  if (isFirestoreEnabled()) {
+    const client = await firestoreGet<Client>('clients', id);
+    if (client) return client;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(CLIENTS_DIR, `${id}.json`));
   if (!content) return null;
@@ -479,6 +488,10 @@ export async function listLeads(workspaceId: string): Promise<CRMLead[]> {
 }
 
 export async function getLead(id: string): Promise<CRMLead | null> {
+  if (isFirestoreEnabled()) {
+    const lead = await firestoreGet<CRMLead>('crm', id);
+    if (lead) return lead;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(CRM_DIR, `${id}.json`));
   if (!content) return null;

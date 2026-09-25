@@ -2,16 +2,22 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Project, Task } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
+import { getClient } from './crm';
 import { v4 as uuidv4 } from 'uuid';
 
 const PROJECTS_DIR = path.join(STORAGE_ROOT, 'projects');
 const TASKS_DIR = path.join(STORAGE_ROOT, 'tasks');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(PROJECTS_DIR, { recursive: true });
-  await fs.mkdir(TASKS_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(PROJECTS_DIR, { recursive: true });
+    await fs.mkdir(TASKS_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 // --- PROJECT OPERATIONS ---
@@ -57,6 +63,10 @@ export async function listProjects(workspaceId: string): Promise<Project[]> {
 }
 
 export async function getProject(id: string): Promise<Project | null> {
+  if (isFirestoreEnabled()) {
+    const proj = await firestoreGet<Project>('projects', id);
+    if (proj) return proj;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(PROJECTS_DIR, `${id}.json`));
   if (!content) return null;
@@ -215,6 +225,10 @@ export async function listTasksByProject(projectId: string): Promise<Task[]> {
 }
 
 export async function getTask(id: string): Promise<Task | null> {
+  if (isFirestoreEnabled()) {
+    const task = await firestoreGet<Task>('tasks', id);
+    if (task) return task;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(TASKS_DIR, `${id}.json`));
   if (!content) return null;
@@ -228,10 +242,9 @@ export async function createTask(
 ): Promise<Task> {
   await ensureDirs();
   if (data.clientId) {
-    const clientsDir = path.join(STORAGE_ROOT, 'clients');
-    const clientExists = await fs.stat(path.join(clientsDir, `${data.clientId}.json`)).then(() => true).catch(() => false);
-    if (!clientExists) {
-      throw new Error(`Cannot create task: client ${data.clientId} does not exist in clients directory`);
+    const client = await getClient(data.clientId);
+    if (!client) {
+      throw new Error(`Cannot create task: client ${data.clientId} does not exist`);
     }
   }
 

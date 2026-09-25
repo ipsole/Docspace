@@ -11,9 +11,14 @@ function isJsonDataFile(file: string): boolean {
   return file.endsWith('.json') && !file.startsWith('._');
 }
 
-// Ensure workspaces folder exists
+// Ensure workspaces folder exists safely without throwing on read-only environments
 async function ensureWorkspaceDir() {
-  await fs.mkdir(WORKSPACE_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(WORKSPACE_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 export async function createWorkspace(name: string, ownerId: string): Promise<Workspace> {

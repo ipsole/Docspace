@@ -20,9 +20,14 @@ export interface CalendarEvent {
 
 const CALENDAR_DIR = path.join(STORAGE_ROOT, 'calendar');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(CALENDAR_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(CALENDAR_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 export async function listEvents(workspaceId: string): Promise<CalendarEvent[]> {

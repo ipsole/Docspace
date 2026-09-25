@@ -2,14 +2,19 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Document } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 
 const DOCS_DIR = path.join(STORAGE_ROOT, 'documents');
 
-// Ensure directories exist
+// Ensure directories exist safely without throwing on read-only environments
 async function ensureDirs() {
-  await fs.mkdir(DOCS_DIR, { recursive: true });
+  if (process.env.VERCEL || isFirestoreEnabled()) return;
+  try {
+    await fs.mkdir(DOCS_DIR, { recursive: true });
+  } catch (err: any) {
+    if (err?.code !== 'EROFS') throw err;
+  }
 }
 
 // --- WIKI OPERATIONS ---
@@ -44,6 +49,10 @@ export async function listWikiPages(workspaceId: string): Promise<Document[]> {
 }
 
 export async function getWikiPage(id: string): Promise<Document | null> {
+  if (isFirestoreEnabled()) {
+    const doc = await firestoreGet<Document>('documents', id);
+    if (doc) return doc;
+  }
   await ensureDirs();
   const content = await safeReadFile(path.join(DOCS_DIR, `${id}.json`));
   if (!content) return null;
