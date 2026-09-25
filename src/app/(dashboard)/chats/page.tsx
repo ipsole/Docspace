@@ -4604,12 +4604,20 @@ export default function ChatsPage() {
             <button onClick={() => setViewingFile(null)} className="absolute -top-10 right-0 p-2 text-white hover:bg-white/10 rounded-lg transition-all">
               <X className="h-5 w-5" />
             </button>
-            {viewingFile.mimeType?.startsWith('image/') ? (
-              <img src={viewingFile.url} alt={viewingFile.name} className="w-full rounded-2xl shadow-2xl" />
-            ) : viewingFile.mimeType?.startsWith('audio/') ? (
+            {(viewingFile.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(viewingFile.name || '')) ? (
+              <img src={viewingFile.url} alt={viewingFile.name} className="w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl" />
+            ) : (viewingFile.mimeType?.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(viewingFile.name || '')) ? (
+              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
+                <video controls autoPlay playsInline src={viewingFile.url} className="w-full max-h-[80vh]" />
+              </div>
+            ) : (viewingFile.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(viewingFile.name || '')) ? (
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl">
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-4">{viewingFile.name}</p>
-                <audio controls src={viewingFile.url} className="w-full" />
+                <audio controls autoPlay src={viewingFile.url} className="w-full" />
+              </div>
+            ) : (viewingFile.mimeType === 'application/pdf' || /\.pdf$/i.test(viewingFile.name || '')) ? (
+              <div className="w-full h-[80vh] bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-2xl">
+                <iframe src={viewingFile.url} title={viewingFile.name} className="w-full h-full border-0" />
               </div>
             ) : (
               <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-2xl text-center">
