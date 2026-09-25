@@ -21,6 +21,15 @@ async function ensureDirs() {
   }
 }
 
+function sortConvosByActivity(list: Conversation[]): Conversation[] {
+  return [...list].sort((a, b) => {
+    const timeA = new Date(a.lastMessage?.createdAt || a.updatedAt || a.createdAt || 0).getTime() || 0;
+    const timeB = new Date(b.lastMessage?.createdAt || b.updatedAt || b.createdAt || 0).getTime() || 0;
+    if (timeB !== timeA) return timeB - timeA;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export async function listConversations(workspaceId: string, userId: string, role?: string): Promise<Conversation[]> {
   // Check if user is a member of the workspace
   const hasAccess = await checkWorkspaceAccess(workspaceId, { id: userId, role });
@@ -39,7 +48,7 @@ export async function listConversations(workspaceId: string, userId: string, rol
         }
       }
     }
-    return convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return sortConvosByActivity(convos);
   }
 
   await ensureDirs();
@@ -69,7 +78,7 @@ export async function listConversations(workspaceId: string, userId: string, rol
     }
   }
 
-  return convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  return sortConvosByActivity(convos);
 }
 
 export async function createChannel(

@@ -159,6 +159,15 @@ const setStoredItem = (key: string, value: string): void => {
   } catch {}
 };
 
+const sortConversationsDeterministically = (list: Conversation[]): Conversation[] => {
+  return [...list].sort((a, b) => {
+    const timeA = new Date(a.lastMessageAt || a.createdAt || 0).getTime() || 0;
+    const timeB = new Date(b.lastMessageAt || b.createdAt || 0).getTime() || 0;
+    if (timeB !== timeA) return timeB - timeA;
+    return a.id.localeCompare(b.id);
+  });
+};
+
 export default function ChatsPage() {
   const { user } = useAuth();
   const { activeWorkspace, getTabAccess, currentMember } = useWorkspace();
@@ -178,7 +187,7 @@ export default function ChatsPage() {
       const cached = getStoredItem('cached_conversations');
       if (!cached) return [];
       const list: Conversation[] = JSON.parse(cached);
-      return Array.from(new Map(list.map(c => [c.id, c])).values());
+      return sortConversationsDeterministically(Array.from(new Map(list.map(c => [c.id, c])).values()));
     } catch { return []; }
   });
   const [activeConv, setActiveConv] = useState<Conversation | null>(() => {
@@ -642,16 +651,18 @@ export default function ChatsPage() {
             return fresh;
           });
 
-          if (prev.length === mergedNorms.length) {
+          const sortedNorms = sortConversationsDeterministically(mergedNorms);
+
+          if (prev.length === sortedNorms.length) {
             let unchanged = true;
             for (let i = 0; i < prev.length; i++) {
               if (
-                prev[i].id !== mergedNorms[i].id ||
-                prev[i].lastMessage !== mergedNorms[i].lastMessage ||
-                prev[i].lastMessageAt !== mergedNorms[i].lastMessageAt ||
-                prev[i].name !== mergedNorms[i].name ||
-                prev[i].avatar !== mergedNorms[i].avatar ||
-                prev[i].unreadCount !== mergedNorms[i].unreadCount
+                prev[i].id !== sortedNorms[i].id ||
+                prev[i].lastMessage !== sortedNorms[i].lastMessage ||
+                prev[i].lastMessageAt !== sortedNorms[i].lastMessageAt ||
+                prev[i].name !== sortedNorms[i].name ||
+                prev[i].avatar !== sortedNorms[i].avatar ||
+                prev[i].unreadCount !== sortedNorms[i].unreadCount
               ) {
                 unchanged = false;
                 break;
@@ -659,10 +670,11 @@ export default function ChatsPage() {
             }
             if (unchanged) return prev;
           }
-          return mergedNorms;
+          return sortedNorms;
         });
         try {
-          setStoredItem('cached_conversations', JSON.stringify(uniqueNorms));
+          const sortedAll = sortConversationsDeterministically(uniqueNorms);
+          setStoredItem('cached_conversations', JSON.stringify(sortedAll));
         } catch {}
 
         // Restore activeConv if not set or update it with fresh details without reference thrashing
@@ -1957,7 +1969,7 @@ export default function ChatsPage() {
         });
 
         const norms = accessible.map(c => normalizeConversation(c, userMap));
-        const sorted = norms.sort((a, b) => new Date(b.lastMessageAt || b.createdAt || 0).getTime() - new Date(a.lastMessageAt || a.createdAt || 0).getTime());
+        const sorted = sortConversationsDeterministically(norms);
         const uniqueNorms = Array.from(new Map(sorted.map(c => [c.id, c])).values());
 
         setConversations(uniqueNorms);
@@ -2165,11 +2177,12 @@ export default function ChatsPage() {
           };
         }
         return c;
-      }).sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
+      });
+      const sorted = sortConversationsDeterministically(next);
       try {
-        setStoredItem('cached_conversations', JSON.stringify(next));
+        setStoredItem('cached_conversations', JSON.stringify(sorted));
       } catch {}
-      return next;
+      return sorted;
     });
 
     setTimeout(() => scrollToBottom('auto'), 20);
@@ -2247,6 +2260,21 @@ export default function ChatsPage() {
           const updated = [...prev, normMsg];
           messagesRef.current = updated;
           return updated;
+        });
+        setConversations(prev => {
+          const next = prev.map(c => {
+            if (c.id === activeConv.id) {
+              return {
+                ...c,
+                lastMessage: normMsg.content,
+                lastMessageAt: normMsg.createdAt
+              };
+            }
+            return c;
+          });
+          const sorted = sortConversationsDeterministically(next);
+          try { setStoredItem('cached_conversations', JSON.stringify(sorted)); } catch {}
+          return sorted;
         });
         setTimeout(() => scrollToBottom('auto'), 20);
       }
@@ -2856,7 +2884,7 @@ export default function ChatsPage() {
       return true;
     });
 
-    return uniqueConvs.filter(c => {
+    const filtered = uniqueConvs.filter(c => {
       if (query) {
         const nameMatch = getConvDisplayName(c).toLowerCase().includes(query);
         const clientMatch = Boolean(getLinkedClientForConv(c)?.companyName.toLowerCase().includes(query));
@@ -2878,6 +2906,8 @@ export default function ChatsPage() {
       if (activeFilterTab === 'older') return isOlderThan3Months(c);
       return true;
     });
+
+    return sortConversationsDeterministically(filtered);
   }, [conversations, searchQuery, activeFilterTab, getLinkedClientForConv, isOlderThan3Months, getConvDisplayName]);
 
   const {
