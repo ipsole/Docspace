@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 
 import { uploadFile, uploadFolder } from '@/lib/uploadHelper';
+import { db } from '@/lib/firebase/client';
+import { doc, collection, onSnapshot, query, where, type Unsubscribe } from 'firebase/firestore';
 
 interface Attachment {
   id: string;
@@ -1804,88 +1806,208 @@ export default function ChatsPage() {
     lastTypingSentRef.current = 0;
   }, [activeConv]);
 
-  // Handle active conversation load and state persistence
+  // Handle active conversation load, state persistence, and Firestore Realtime onSnapshot sync
   useEffect(() => {
-    if (activeConv) {
-      activeConvIdRef.current = activeConv.id;
-      latestAppliedSeqRef.current = ++fetchSeqRef.current;
-      fetchInFlightRef.current = null;
-      if (typeof window !== 'undefined') {
-        try {
-          setStoredItem('last_active_chat_id', activeConv.id);
-          const savedDraft = sessionStorage.getItem(`chat_draft_${activeConv.id}`);
-          setInput(savedDraft || '');
-        } catch {}
-      }
-      const hasCached = typeof window !== 'undefined' && !!getStoredItem(`cached_msgs_${activeConv.id}`);
-      fetchMessages(activeConv.id, !hasCached);
-    } else {
+    if (!activeConv?.id) {
       activeConvIdRef.current = null;
       setMessages([]);
       messagesRef.current = [];
+      return;
     }
-  }, [activeConv?.id, fetchMessages]);
 
-  // Continuous real-time synchronization loop for active conversation (responsive live updates)
-  useEffect(() => {
-    if (!activeConv?.id) return;
     const currentChatId = activeConv.id;
+    activeConvIdRef.current = currentChatId;
+    latestAppliedSeqRef.current = ++fetchSeqRef.current;
+    fetchInFlightRef.current = null;
 
-    let pollInterval = 1500; // Snappy 1.5s live polling when tab is active
-    let timer: NodeJS.Timeout;
+    if (typeof window !== 'undefined') {
+      try {
+        setStoredItem('last_active_chat_id', currentChatId);
+        const savedDraft = sessionStorage.getItem(`chat_draft_${currentChatId}`);
+        setInput(savedDraft || '');
+      } catch {}
+    }
 
-    const tick = () => {
-      if (!document.hidden && activeConvIdRef.current === currentChatId) {
-        fetchMessages(currentChatId, false, true);
-      }
-    };
+    // 0ms instant cache hydration
+    const cached = getStoredItem(`cached_msgs_${currentChatId}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          messagesRef.current = parsed;
+        }
+      } catch {}
+    } else {
+      setLoadingMsgs(true);
+    }
 
-    const startTimer = () => {
-      clearInterval(timer);
-      timer = setInterval(tick, pollInterval);
-    };
+    // Initial server fetch to guarantee data completeness
+    fetchMessages(currentChatId, !cached);
 
-    const handleVisibility = () => {
-      if (document.hidden) {
-        pollInterval = 5000;
-      } else {
-        pollInterval = 1500;
-        if (activeConvIdRef.current === currentChatId) {
+    let unsubscribe: Unsubscribe | null = null;
+    let pollTimer: NodeJS.Timeout | null = null;
+
+    // Attach direct Firestore Realtime onSnapshot listener
+    try {
+      const msgDocRef = doc(db, 'messages', currentChatId);
+      unsubscribe = onSnapshot(msgDocRef, (snapshot) => {
+        if (activeConvIdRef.current !== currentChatId) return;
+        setLoadingMsgs(false);
+
+        if (!snapshot.exists()) return;
+
+        const data = snapshot.data();
+        const rawItems = Array.isArray(data) ? data : (data.items || []);
+        const serverMsgs: Message[] = (rawItems as ApiMessage[]).map(m => normalizeMessage(m));
+
+        setMessages(prev => {
+          if (activeConvIdRef.current !== currentChatId) return prev;
+          const pendingTemps = prev.filter(m => m.id.startsWith('temp_') && !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId));
+          const combined = [...serverMsgs, ...pendingTemps];
+          messagesRef.current = combined;
+          return combined;
+        });
+
+        try {
+          setStoredItem(`cached_msgs_${currentChatId}`, JSON.stringify(serverMsgs));
+        } catch {}
+
+        if (serverMsgs.length > messagesRef.current.length) {
+          setTimeout(() => scrollToBottom('smooth'), 40);
+        }
+
+        // Keep sidebar lastMessage in sync
+        if (serverMsgs.length > 0) {
+          const last = serverMsgs[serverMsgs.length - 1];
+          setConversations(convList => {
+            let changed = false;
+            const updated = convList.map(c => {
+              if (c.id === currentChatId) {
+                const lastTime = new Date(last.createdAt).getTime();
+                const existingTime = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0;
+                if (lastTime >= existingTime && (c.lastMessage !== last.content || c.lastMessageAt !== last.createdAt)) {
+                  changed = true;
+                  return {
+                    ...c,
+                    lastMessage: last.content,
+                    lastMessageAt: last.createdAt
+                  };
+                }
+              }
+              return c;
+            });
+            if (changed) {
+              try { setStoredItem('cached_conversations', JSON.stringify(updated)); } catch {}
+              return updated;
+            }
+            return convList;
+          });
+        }
+      }, (error) => {
+        // Fallback: If client permissions restrict direct reads, activate fallback sync
+        if (!pollTimer) {
+          pollTimer = setInterval(() => {
+            if (!document.hidden && activeConvIdRef.current === currentChatId) {
+              fetchMessages(currentChatId, false, true);
+            }
+          }, 1500);
+        }
+      });
+    } catch {
+      // Fallback polling
+      pollTimer = setInterval(() => {
+        if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }
-      startTimer();
-    };
-
-    const handleFocus = () => {
-      if (activeConvIdRef.current === currentChatId) {
-        fetchMessages(currentChatId, false, true);
-      }
-    };
-
-    startTimer();
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleFocus);
+      }, 1500);
+    }
 
     return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleFocus);
+      if (unsubscribe) unsubscribe();
+      if (pollTimer) clearInterval(pollTimer);
     };
-  }, [activeConv?.id, fetchMessages]);
+  }, [activeConv?.id, fetchMessages, normalizeMessage, scrollToBottom]);
 
-  // Periodic background revalidation for conversations list (sidebar)
+  // Firestore Realtime onSnapshot listener for conversations list (sidebar)
   useEffect(() => {
     if (!activeWorkspace?.id) return;
+    const wsId = activeWorkspace.id;
 
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        fetchConversations();
-      }
-    }, 8000);
+    let unsubscribe: Unsubscribe | null = null;
+    let pollTimer: NodeJS.Timeout | null = null;
 
-    return () => clearInterval(interval);
-  }, [activeWorkspace?.id, fetchConversations]);
+    try {
+      const convosQuery = query(
+        collection(db, 'conversations'),
+        where('workspaceId', '==', wsId)
+      );
+
+      unsubscribe = onSnapshot(convosQuery, (snapshot) => {
+        setLoadingConvs(false);
+        const rawDocs: ApiConversation[] = [];
+        snapshot.forEach(docSnap => {
+          rawDocs.push({ id: docSnap.id, ...(docSnap.data() as any) });
+        });
+
+        const userMap = usersByIdRef.current;
+        const accessible = rawDocs.filter(c => {
+          const isShared = c.isChannel || c.isGroup || Boolean(c.clientId);
+          return isShared || (user?.id ? c.participants?.includes(user.id) : true);
+        });
+
+        const norms = accessible.map(c => normalizeConversation(c, userMap));
+        const sorted = norms.sort((a, b) => new Date(b.lastMessageAt || b.createdAt || 0).getTime() - new Date(a.lastMessageAt || a.createdAt || 0).getTime());
+        const uniqueNorms = Array.from(new Map(sorted.map(c => [c.id, c])).values());
+
+        setConversations(uniqueNorms);
+        try {
+          setStoredItem('cached_conversations', JSON.stringify(uniqueNorms));
+        } catch {}
+
+        const savedChatId = getStoredItem('last_active_chat_id');
+        setActiveConv(prev => {
+          if (prev) {
+            const match = uniqueNorms.find(c => c.id === prev.id);
+            if (!match) return prev;
+            if (
+              match.name !== prev.name ||
+              match.avatar !== prev.avatar ||
+              match.description !== prev.description ||
+              match.clientId !== prev.clientId
+            ) {
+              return { ...prev, name: match.name, avatar: match.avatar, description: match.description, clientId: match.clientId };
+            }
+            return prev;
+          }
+          if (savedChatId) {
+            return uniqueNorms.find(c => c.id === savedChatId) || uniqueNorms[0] || null;
+          }
+          return uniqueNorms.length > 0 ? uniqueNorms[0] : null;
+        });
+      }, (error) => {
+        // Fallback polling if client read permissions are restricted
+        if (!pollTimer) {
+          pollTimer = setInterval(() => {
+            if (!document.hidden) {
+              fetchConversations();
+            }
+          }, 8000);
+        }
+      });
+    } catch {
+      pollTimer = setInterval(() => {
+        if (!document.hidden) {
+          fetchConversations();
+        }
+      }, 8000);
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [activeWorkspace?.id, user?.id, normalizeConversation, fetchConversations]);
 
   // Persist input draft per active conversation
   useEffect(() => {

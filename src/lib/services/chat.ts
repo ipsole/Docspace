@@ -276,15 +276,17 @@ export async function sendMessage(
     messages.push(message);
     await safeWriteFile(path.join(MSG_DIR, `${chatId}.json`), JSON.stringify(messages, null, 2));
 
-    // Update conversation summary
-    convo.updatedAt = now;
-    convo.lastMessage = {
+    // Update conversation summary with fresh state
+    const freshConvoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
+    const targetConvo = freshConvoContent ? (JSON.parse(freshConvoContent) as Conversation) : convo;
+    targetConvo.updatedAt = now;
+    targetConvo.lastMessage = {
       id,
       senderId,
       content: type === 'attachment' ? 'Attachment' : content,
       createdAt: now
     };
-    await safeWriteFile(path.join(CONV_DIR, `${chatId}.json`), JSON.stringify(convo, null, 2));
+    await safeWriteFile(path.join(CONV_DIR, `${chatId}.json`), JSON.stringify(targetConvo, null, 2));
 
     // Emit event to all workspace members if it's a channel, or to participants if DM
     const targetParticipants = convo.isChannel ? workspaceMembers.map(m => m.userId) : convo.participants;
