@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFirebaseAuth } from '@/lib/firebase/admin';
-import { listUsers, updateUser } from '@/lib/storage/storage';
-import { startSession } from '@/lib/auth';
-import { logInfo, logError } from '@/lib/storage/logger';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const auth = getFirebaseAuth();
-  return NextResponse.json({
-    status: 'ready',
-    authConfigured: Boolean(auth),
-    backend: process.env.DATA_BACKEND || 'not-configured'
-  });
+  try {
+    const { getFirebaseAuth } = await import('@/lib/firebase/admin');
+    const auth = getFirebaseAuth();
+    return NextResponse.json({
+      status: 'ready',
+      authConfigured: Boolean(auth),
+      backend: process.env.DATA_BACKEND || 'not-configured'
+    });
+  } catch (e: any) {
+    return NextResponse.json({ status: 'error', error: e?.message }, { status: 200 });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -24,6 +25,12 @@ export async function POST(request: NextRequest) {
     if (!idToken) {
       return NextResponse.json({ error: 'Missing Google ID token' }, { status: 400 });
     }
+
+    // Dynamic imports to prevent module-level crash from firebase-admin
+    const { getFirebaseAuth } = await import('@/lib/firebase/admin');
+    const { listUsers, updateUser } = await import('@/lib/storage/storage');
+    const { startSession } = await import('@/lib/auth');
+    const { logInfo, logError } = await import('@/lib/storage/logger');
 
     const auth = getFirebaseAuth();
     if (!auth) {
@@ -103,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     // If still not found or not authorized: REJECT!
     if (!userToLogin) {
-      await logError('AUTH', `Unauthorized Google login attempt: ${email}`, { email });
+      try { await logError('AUTH', `Unauthorized Google login attempt: ${email}`, { email }); } catch {}
       return NextResponse.json(
         { 
           error: `Access restricted: Your Google account (${email}) is not an authorized team member or owner of this workspace.` 
@@ -118,20 +125,17 @@ export async function POST(request: NextRequest) {
 
     // Start Session and set HttpOnly Cookie
     await startSession(userToLogin.id, userToLogin.username, true);
-    await logInfo('AUTH', `Google login success: ${userToLogin.username} (${email})`, { 
+    try { await logInfo('AUTH', `Google login success: ${userToLogin.username} (${email})`, { 
       userId: userToLogin.id, 
       username: userToLogin.username, 
       email 
-    });
+    }); } catch {}
 
     const { passwordHash: _, ...userWithoutHash } = userToLogin;
     return NextResponse.json(userWithoutHash);
 
   } catch (error: any) {
     console.error('Google Auth error:', error);
-    try {
-      await logError('AUTH', 'Google login error', { error: error.message });
-    } catch {}
     return NextResponse.json({ error: error.message || 'Authentication failed' }, { status: 500 });
   }
 }
