@@ -2176,15 +2176,15 @@ ${JSON.stringify(payload, null, 2)}
     ` : '';
 
     const headerBlock = `
-      <div style="${hdrBg} display:flex; justify-content:space-between; align-items:flex-start">
-        <div style="max-width:55%">
+      <div class="inv-header" style="${hdrBg} display:flex; justify-content:space-between; align-items:flex-start">
+        <div class="inv-header-left" style="max-width:55%">
           ${logoBlock}
           <div style="font-size:${isCompact ? '18px' : '22px'}; font-weight:900; letter-spacing:-0.5px; color:${titleCol}; line-height:1.2">${businessProfile.name || 'Docdril'}</div>
           ${businessProfile.tagline ? `<div style="font-size:${isCompact ? '10px' : '11px'}; font-weight:600; color:${subCol}; margin-top:${isCompact ? '2px' : '3px'}; letter-spacing:0.02em">${businessProfile.tagline}</div>` : ''}
           <div style="font-size:${isCompact ? '9.5px' : '10.5px'}; color:${subCol}; margin-top:${isCompact ? '2px' : '3px'}">${businessProfile.web || 'docdril.com'}${businessProfile.email ? ` &nbsp;•&nbsp; ${businessProfile.email}` : ''}</div>
           ${businessProfile.gstin ? `<div style="font-size:${isCompact ? '9.5px' : '10.5px'}; font-weight:700; color:${titleCol}; margin-top:3px"><b>GSTIN:</b> ${businessProfile.gstin}</div>` : ''}
         </div>
-        <div style="text-align:right">
+        <div class="inv-header-right" style="text-align:right">
           <div style="font-size:${isCompact ? '14px' : '16px'}; font-weight:900; text-transform:uppercase; color:${titleCol}; letter-spacing:0.06em">${docTitle}</div>
           <div style="font-size:${isCompact ? '10px' : '11px'}; color:${subCol}; margin-top:${isCompact ? '3px' : '6px'}"><b style="color:${titleCol}">${docNumLabel}</b> ${inv.invoiceNumber}</div>
           <div style="font-size:${isCompact ? '10px' : '11px'}; color:${subCol}; margin-top:2px"><b style="color:${titleCol}">${dateLabel}</b> ${inv.issueDate}</div>
@@ -2194,9 +2194,9 @@ ${JSON.stringify(payload, null, 2)}
     `;
 
     const partiesBlock = `
-      <table style="width:100%; border-collapse:collapse; margin-bottom:${isCompact ? '10px' : '20px'}">
+      <table class="inv-parties" style="width:100%; border-collapse:collapse; margin-bottom:${isCompact ? '10px' : '20px'}">
         <tr>
-          <td style="width:50%; vertical-align:top; padding-right:15px">
+          <td class="inv-party-billed" style="width:50%; vertical-align:top; padding-right:15px">
             <div style="font-size:${isCompact ? '8.5px' : '9.5px'}; font-weight:800; text-transform:uppercase; color:#000000; letter-spacing:0.06em; margin-bottom:${isCompact ? '2px' : '5px'}">${isReceipt ? 'Received From' : 'Billed To'}</div>
             <div style="font-size:${isCompact ? '12px' : '13.5px'}; font-weight:800; color:#000000; margin-bottom:2px">${meta.clientName || inv.clientName}</div>
             ${meta.clientGst ? `<div style="font-size:${isCompact ? '9.5px' : '10.5px'}; color:#000000; margin-bottom:2px"><b>GSTIN:</b> ${meta.clientGst}</div>` : ''}
@@ -2204,7 +2204,7 @@ ${JSON.stringify(payload, null, 2)}
             ${meta.clientPhone ? `<div style="font-size:${isCompact ? '9.5px' : '10.5px'}; color:#000000">Phone: ${meta.clientPhone}</div>` : ''}
             ${meta.clientEmail ? `<div style="font-size:${isCompact ? '9.5px' : '10.5px'}; color:#000000">Email: ${meta.clientEmail}</div>` : ''}
           </td>
-          <td style="width:50%; vertical-align:top; padding-left:15px">
+          <td class="inv-party-issued" style="width:50%; vertical-align:top; padding-left:15px">
             <div style="font-size:${isCompact ? '8.5px' : '9.5px'}; font-weight:800; text-transform:uppercase; color:#000000; letter-spacing:0.06em; margin-bottom:${isCompact ? '2px' : '5px'}">Issued By</div>
             <div style="font-size:${isCompact ? '12px' : '13.5px'}; font-weight:800; color:#000000; margin-bottom:2px">${businessProfile.name || 'Docdril'}</div>
             ${businessProfile.gstin ? `<div style="font-size:${isCompact ? '9.5px' : '10.5px'}; color:#000000; margin-bottom:2px"><b>GSTIN:</b> ${businessProfile.gstin}</div>` : ''}
@@ -2222,22 +2222,24 @@ ${JSON.stringify(payload, null, 2)}
     const totalRowLabel = isReceipt ? 'Total Received' : isProforma ? 'Estimated Total' : 'Total Payable';
 
     const tableBlock = `
-      <table style="width:100%; border-collapse:collapse; margin-bottom:${isCompact ? '8px' : '12px'}; font-size:${itemFontSize}">
-        <thead>
-          <tr style="background:${tableHeaderBg}; color:#000000; font-size:${isCompact ? '9px' : '10px'}; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; border-top:1.5px solid #000000; border-bottom:1.5px solid #000000">
-            <th style="padding:${cellPadding}; text-align:left; width:6%">#</th>
-            <th style="padding:${cellPadding}; text-align:left; width:48%">Description</th>
-            <th style="padding:${cellPadding}; text-align:center; width:12%">Qty</th>
-            <th style="padding:${cellPadding}; text-align:right; width:17%">Price</th>
-            <th style="padding:${cellPadding}; text-align:right; width:17%">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsRows}
-        </tbody>
-      </table>
+      <div class="inv-table-wrap" style="width:100%">
+        <table class="inv-items-table" style="width:100%; border-collapse:collapse; margin-bottom:${isCompact ? '8px' : '12px'}; font-size:${itemFontSize}">
+          <thead>
+            <tr style="background:${tableHeaderBg}; color:#000000; font-size:${isCompact ? '9px' : '10px'}; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; border-top:1.5px solid #000000; border-bottom:1.5px solid #000000">
+              <th style="padding:${cellPadding}; text-align:left; width:6%">#</th>
+              <th style="padding:${cellPadding}; text-align:left; width:48%">Description</th>
+              <th style="padding:${cellPadding}; text-align:center; width:12%">Qty</th>
+              <th style="padding:${cellPadding}; text-align:right; width:17%">Price</th>
+              <th style="padding:${cellPadding}; text-align:right; width:17%">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsRows}
+          </tbody>
+        </table>
+      </div>
 
-      <div style="display:flex; justify-content:flex-end; margin-bottom:${isCompact ? '8px' : '14px'}">
+      <div class="inv-total-wrap" style="display:flex; justify-content:flex-end; margin-bottom:${isCompact ? '8px' : '14px'}">
         <table style="width:${isCompact ? '230px' : '280px'}; border-collapse:collapse; font-size:${isCompact ? '10px' : '11.5px'}">
           <tr>
             <td style="padding:${isCompact ? '2px 6px' : '4px 8px'}; color:#000000">Subtotal</td>
@@ -2262,16 +2264,16 @@ ${JSON.stringify(payload, null, 2)}
 
     const paymentBlock = isReceipt ? `
       <div style="border-top:${isCompact ? '1px' : '1.5px'} solid #000000; margin-top:${isCompact ? '10px' : '20px'}; padding-top:${isCompact ? '8px' : '14px'}">
-        <table style="width:100%; border-collapse:collapse">
+        <table class="inv-payment-table" style="width:100%; border-collapse:collapse">
           <tr>
-            <td style="vertical-align:top; width:56%; padding-right:16px">
+            <td class="inv-pay-info" style="vertical-align:top; width:56%; padding-right:16px">
               <div style="font-size:${isCompact ? '8.5px' : '9.5px'}; font-weight:800; text-transform:uppercase; color:#000000; letter-spacing:0.06em; margin-bottom:${isCompact ? '3px' : '6px'}">Payment Confirmation</div>
               <div style="font-size:${isCompact ? '9.5px' : '11px'}; line-height:${isCompact ? '1.4' : '1.6'}; color:#000000">
                 Payment received and credited to bank account.<br>
                 Thank you for your prompt settlement.
               </div>
             </td>
-            <td style="vertical-align:top; text-align:right; width:44%">
+            <td class="inv-pay-extra" style="vertical-align:top; text-align:right; width:44%">
               <div style="display:inline-block; border:1.5px solid #000000; border-radius:8px; padding:${isCompact ? '6px 12px' : '8px 16px'}; text-align:center">
                 <div style="font-size:${isCompact ? '8px' : '9px'}; font-weight:800; text-transform:uppercase; letter-spacing:0.08em; color:#000000">Official Receipt</div>
                 <div style="font-size:${isCompact ? '12px' : '14px'}; font-weight:900; color:#000000; margin-top:2px">PAID IN FULL</div>
@@ -2282,14 +2284,14 @@ ${JSON.stringify(payload, null, 2)}
       </div>
     ` : `
       <div style="border-top:${isCompact ? '1px' : '1.5px'} solid #000000; margin-top:${isCompact ? '10px' : '20px'}; padding-top:${isCompact ? '8px' : '14px'}">
-        <table style="width:100%; border-collapse:collapse">
+        <table class="inv-payment-table" style="width:100%; border-collapse:collapse">
           <tr>
-            <td style="vertical-align:top; width:54%; padding-right:16px">
+            <td class="inv-pay-info" style="vertical-align:top; width:54%; padding-right:16px">
               <div style="font-size:${isCompact ? '8.5px' : '9.5px'}; font-weight:800; text-transform:uppercase; color:#000000; letter-spacing:0.06em; margin-bottom:${isCompact ? '3px' : '6px'}">Bank Transfer Details</div>
               <div style="font-size:${isCompact ? '9.5px' : '11px'}; line-height:${isCompact ? '1.4' : '1.6'}; color:#000000">${businessProfile.bank ? businessProfile.bank.replace(/\n/g, '<br>') : ''}</div>
             </td>
-            <td style="vertical-align:top; text-align:right; width:46%">
-              <div style="display:inline-flex; flex-direction:column; align-items:flex-end; text-align:right">
+            <td class="inv-pay-extra" style="vertical-align:top; text-align:right; width:46%">
+              <div class="qr-col" style="display:inline-flex; flex-direction:column; align-items:flex-end; text-align:right">
                 ${qrImageBlock}
                 <div style="font-size:${isCompact ? '8px' : '9px'}; color:#000000; margin-bottom:2px; text-transform:uppercase; font-weight:800; letter-spacing:0.04em">UPI ID (Scan & Pay)</div>
                 <div style="font-weight:900; font-size:${isCompact ? '11px' : '12.5px'}; color:#000000; font-family:monospace">${businessProfile.upiId || ''}</div>
@@ -2330,7 +2332,7 @@ ${JSON.stringify(payload, null, 2)}
       <html>
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
           <title>${inv.invoiceNumber || 'invoice'}</title>
           <style>
             @page {
@@ -2353,6 +2355,9 @@ ${JSON.stringify(payload, null, 2)}
                 padding: ${isCompact ? '8mm 10mm' : '14mm 16mm'} !important;
                 box-shadow: none !important;
                 border: none !important;
+              }
+              .inv-table-wrap {
+                overflow: visible !important;
               }
             }
             * {
@@ -2378,6 +2383,68 @@ ${JSON.stringify(payload, null, 2)}
               flex-direction: column;
               justify-content: space-between;
               box-sizing: border-box;
+            }
+            @media screen and (max-width: 640px) {
+              body {
+                padding: 0 !important;
+                background: #ffffff !important;
+              }
+              .page-sheet {
+                padding: 12px 10px !important;
+                width: 100% !important;
+              }
+              .inv-header {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 10px !important;
+              }
+              .inv-header-left {
+                max-width: 100% !important;
+                width: 100% !important;
+              }
+              .inv-header-right {
+                text-align: left !important;
+                width: 100% !important;
+                border-top: 1px dashed rgba(0,0,0,0.15) !important;
+                padding-top: 8px !important;
+              }
+              .inv-parties, .inv-parties tbody, .inv-parties tr, .inv-parties td {
+                display: block !important;
+                width: 100% !important;
+                padding: 0 !important;
+              }
+              .inv-party-billed {
+                margin-bottom: 12px !important;
+                padding-bottom: 10px !important;
+                border-bottom: 1px dashed #e2e8f0 !important;
+              }
+              .inv-table-wrap {
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                margin-bottom: 8px !important;
+              }
+              .inv-items-table {
+                min-width: 440px !important;
+              }
+              .inv-total-wrap {
+                width: 100% !important;
+              }
+              .inv-total-wrap table {
+                width: 100% !important;
+              }
+              .inv-payment-table, .inv-payment-table tbody, .inv-payment-table tr, .inv-payment-table td {
+                display: block !important;
+                width: 100% !important;
+                padding: 0 !important;
+              }
+              .inv-pay-extra {
+                margin-top: 12px !important;
+                text-align: left !important;
+              }
+              .qr-col {
+                align-items: flex-start !important;
+                text-align: left !important;
+              }
             }
           </style>
         </head>
@@ -4275,39 +4342,8 @@ GSTR-1 Segregation:
                     </select>
                   </div>
 
-                  {/* Template Style Selector */}
-                  <div className="space-y-1.5 pt-2 border-t border-slate-150/40 dark:border-slate-800/40">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Preview Template Style</p>
-                    <div className="flex flex-col gap-1.5">
-                      {(['classic', 'modern', 'compact'] as const).map(style => (
-                        <button
-                          key={style}
-                          onClick={() => setPreviewTpl(style)}
-                          className={`w-full text-left py-2 px-3 border rounded-xl text-[10px] font-bold uppercase tracking-wider capitalize transition-all ${
-                            previewTpl === style
-                              ? 'bg-slate-900 border-slate-900 text-white dark:bg-slate-100 dark:border-slate-100 dark:text-slate-900 shadow-sm'
-                              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-808 text-slate-500'
-                          }`}
-                        >
-                          {style} Template
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Totals card */}
-                  <div className="p-4 bg-white dark:bg-slate-900 border border-slate-150/60 dark:border-slate-808 rounded-2xl shadow-inner space-y-2">
-                    <div className="flex justify-between items-center text-[10px] text-slate-450 uppercase font-semibold">
-                      <span>Grand Total</span>
-                    </div>
-                    <p className="font-mono text-base font-black text-indigo-650 dark:text-indigo-400">₹{selectedInvoice.total.toLocaleString()}</p>
-                    <div className="text-[8px] text-slate-400 block pt-1 border-t border-slate-100 dark:border-slate-800">
-                      Includes GST split adjustments.
-                    </div>
-                  </div>
-
                   {/* Invoice Actions */}
-                  <div className="space-y-2 pt-1 border-t border-slate-150/40 dark:border-slate-800/40">
+                  <div className="space-y-2 pt-2 border-t border-slate-150/40 dark:border-slate-800/40">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Invoice Actions</p>
                     
                     {/* Print PDF Button */}
@@ -4359,25 +4395,36 @@ GSTR-1 Segregation:
                     <button
                       type="button"
                       onClick={() => { setSelectedInvoice(null); openEditInvoice(selectedInvoice); }}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
                       title={`Edit ${selDocTitle}`}
                     >
                       <Edit3 className="h-3.5 w-3.5" />
                       <span>Edit Invoice</span>
                     </button>
                   </div>
+
+                  {/* Totals card */}
+                  <div className="p-4 bg-white dark:bg-slate-900 border border-slate-150/60 dark:border-slate-808 rounded-2xl shadow-inner space-y-2">
+                    <div className="flex justify-between items-center text-[10px] text-slate-450 uppercase font-semibold">
+                      <span>Grand Total</span>
+                    </div>
+                    <p className="font-mono text-base font-black text-indigo-650 dark:text-indigo-400">₹{selectedInvoice.total.toLocaleString()}</p>
+                    <div className="text-[8px] text-slate-400 block pt-1 border-t border-slate-100 dark:border-slate-800">
+                      Includes GST split adjustments.
+                    </div>
+                  </div>
                 </div>
 
                 {/* Right Column: Live rendered Document Preview (iframe) */}
-                <div className={`${previewMobileTab === 'details' ? 'hidden md:flex' : 'flex'} flex-1 bg-slate-100 dark:bg-slate-950/40 p-2 sm:p-4 flex-col items-center justify-between min-h-0 relative overflow-hidden`}>
-                  {/* Top bar on iframe container with Template style selector on mobile/tablet */}
+                <div className={`${previewMobileTab === 'details' ? 'hidden md:flex' : 'flex'} flex-1 bg-slate-100 dark:bg-slate-950/40 p-2 sm:p-4 flex-col items-center min-h-0 relative overflow-hidden`}>
+                  {/* Top bar on iframe container with Template style selector */}
                   <div className="w-full max-w-[680px] flex items-center justify-between gap-2 mb-2 px-1 shrink-0">
                     <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
                       {(['classic', 'modern', 'compact'] as const).map(style => (
                         <button
                           key={style}
                           onClick={() => setPreviewTpl(style)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider capitalize transition-all cursor-pointer ${
+                          className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold uppercase tracking-wider capitalize transition-all cursor-pointer ${
                             previewTpl === style
                               ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-xs'
                               : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -4389,7 +4436,7 @@ GSTR-1 Segregation:
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <span className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs">
                         ₹{selectedInvoice.total.toLocaleString()}
                       </span>
                     </div>
@@ -4402,35 +4449,6 @@ GSTR-1 Segregation:
                       className="flex-1 w-full border-none h-full"
                       srcDoc={buildInvoiceHTML(selectedInvoice, previewTpl, false)}
                     />
-                  </div>
-
-                  {/* Mobile Quick Action Footer (only visible on mobile when preview is shown) */}
-                  <div className="md:hidden w-full max-w-[680px] mt-2 pt-1 flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handlePrintPdf(selectedInvoice)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-900 hover:opacity-90 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-                    >
-                      <Printer className="h-3.5 w-3.5 shrink-0" />
-                      <span>Print PDF</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedInvoice(null); openEditInvoice(selectedInvoice); }}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                    >
-                      <Edit3 className="h-3.5 w-3.5 shrink-0" />
-                      <span>Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewMobileTab('details')}
-                      className="flex items-center justify-center gap-1.5 py-2 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                      title="More details and actions"
-                    >
-                      <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
-                      <span>Details</span>
-                    </button>
                   </div>
                 </div>
 
