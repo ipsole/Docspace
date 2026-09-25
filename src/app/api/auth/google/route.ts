@@ -3,18 +3,82 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+async function verifyGoogleIdToken(idToken: string): Promise<{
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+}> {
+  // Method 1: Google OAuth2 token info endpoint (standard, reliable, zero CJS/ESM conflicts)
+  try {
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.email) {
+        return {
+          email: data.email,
+          email_verified: data.email_verified === 'true' || data.email_verified === true,
+          name: data.name,
+          picture: data.picture,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Google tokeninfo lookup failed, trying Firebase endpoint:', e);
+  }
+
+  // Method 2: Firebase Identity Toolkit accounts:lookup API
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    if (apiKey) {
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const user = data.users?.[0];
+        if (user && user.email) {
+          return {
+            email: user.email,
+            email_verified: user.emailVerified === true,
+            name: user.displayName,
+            picture: user.photoUrl,
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Firebase IdentityToolkit accounts:lookup failed:', e);
+  }
+
+  // Method 3: Fallback to firebase-admin verifyIdToken
   try {
     const { getFirebaseAuth } = await import('@/lib/firebase/admin');
     const auth = getFirebaseAuth();
-    return NextResponse.json({
-      status: 'ready',
-      authConfigured: Boolean(auth),
-      backend: process.env.DATA_BACKEND || 'not-configured'
-    });
-  } catch (e: any) {
-    return NextResponse.json({ status: 'error', error: e?.message }, { status: 200 });
+    if (auth) {
+      const decoded = await auth.verifyIdToken(idToken);
+      return {
+        email: decoded.email,
+        email_verified: decoded.email_verified,
+        name: decoded.name,
+        picture: decoded.picture,
+      };
+    }
+  } catch (e) {
+    console.warn('firebase-admin verifyIdToken failed:', e);
   }
+
+  throw new Error('Unable to verify Google ID token. Please try signing in again.');
+}
+
+export async function GET() {
+  return NextResponse.json({
+    status: 'ready',
+    authConfigured: true,
+    backend: process.env.DATA_BACKEND || 'not-configured'
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -26,19 +90,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing Google ID token' }, { status: 400 });
     }
 
-    // Dynamic imports to prevent module-level crash from firebase-admin
-    const { getFirebaseAuth } = await import('@/lib/firebase/admin');
-    const { listUsers, updateUser } = await import('@/lib/storage/storage');
-    const { startSession } = await import('@/lib/auth');
-    const { logInfo, logError } = await import('@/lib/storage/logger');
-
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      return NextResponse.json({ error: 'Firebase Admin Auth is not configured on the server' }, { status: 500 });
-    }
-
-    // Verify token with Firebase Admin
-    const decodedToken = await auth.verifyIdToken(idToken);
+    // Verify token safely without jwks-rsa/jose CJS crash
+    const decodedToken = await verifyGoogleIdToken(idToken);
     const email = decodedToken.email?.toLowerCase();
 
     if (!email) {
@@ -48,6 +101,10 @@ export async function POST(request: NextRequest) {
     if (!decodedToken.email_verified) {
       return NextResponse.json({ error: 'Google email address is not verified' }, { status: 403 });
     }
+
+    const { listUsers, updateUser } = await import('@/lib/storage/storage');
+    const { startSession } = await import('@/lib/auth');
+    const { logInfo, logError } = await import('@/lib/storage/logger');
 
     const ownerEmails = (process.env.OWNER_GOOGLE_EMAIL || '')
       .toLowerCase()
