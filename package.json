@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "dev:clean": "rm -rf .next && next dev --webpack",
     "dev:turbo": "next dev --turbopack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "migrate:cloud": "node --experimental-strip-types scripts/migrate-to-cloud.ts"
