@@ -9,7 +9,7 @@ import {
   X, Phone, MoreVertical, ChevronLeft, Download, Play, Pause, StopCircle,
   AlertCircle, Bell, Building2, ExternalLink, Globe, Mail, MapPin, Users2,
   Calendar, DollarSign, ChevronRight, ChevronDown, FolderKanban, Database, Link2, Unlink,
-  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock
+  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock, Check
 } from 'lucide-react';
 
 import { uploadFile, uploadFolder } from '@/lib/uploadHelper';
@@ -60,6 +60,7 @@ interface ApiUser {
   id: string;
   username: string;
   displayName: string;
+  email?: string | null;
   avatar?: string | null;
   status?: string;
   role?: string;
@@ -538,9 +539,10 @@ export default function ChatsPage() {
     userRef.current = user;
   }, [user]);
 
-  const normalizeConversation = useCallback((conv: ApiConversation): Conversation => {
+  const normalizeConversation = useCallback((conv: ApiConversation, userMap?: any): Conversation => {
+    const map = (userMap && typeof userMap === 'object' && !Array.isArray(userMap)) ? userMap : usersByIdRef.current;
     const memberNames = conv.participants.reduce<Record<string, string>>((acc, id) => {
-      const profile = usersByIdRef.current[id];
+      const profile = map[id];
       acc[id] = profile?.displayName || profile?.username || 'Unknown';
       return acc;
     }, {});
@@ -562,19 +564,20 @@ export default function ChatsPage() {
     };
   }, []);
 
-  const normalizeMessage = useCallback((msg: ApiMessage): Message => {
-    const reactions = msg.reactions.reduce<Record<string, string[]>>((acc, reaction) => {
+  const normalizeMessage = useCallback((msg: ApiMessage, userMap?: any): Message => {
+    const reactions = (msg.reactions || []).reduce<Record<string, string[]>>((acc, reaction) => {
       acc[reaction.emoji] = acc[reaction.emoji] || [];
       acc[reaction.emoji].push(reaction.userId);
       return acc;
     }, {});
-    const sender = usersByIdRef.current[msg.senderId];
+    const map = (userMap && typeof userMap === 'object' && !Array.isArray(userMap)) ? userMap : usersByIdRef.current;
+    const sender = map[msg.senderId];
 
     return {
       id: msg.id,
       chatId: msg.chatId,
       senderId: msg.senderId,
-      senderName: sender?.displayName || sender?.username || 'Unknown',
+      senderName: sender?.displayName || sender?.username || (msg.senderId === user?.id ? (user?.displayName || user?.username || 'You') : 'Unknown'),
       senderAvatar: sender?.avatar || null,
       content: msg.content,
       createdAt: msg.createdAt,
@@ -585,7 +588,7 @@ export default function ChatsPage() {
       deleted: msg.deleted,
       pinned: msg.pinned || false,
     };
-  }, []);
+  }, [user]);
 
   const fetchConversations = useCallback(async () => {
     if (!activeWorkspace) return;
@@ -595,6 +598,7 @@ export default function ChatsPage() {
         fetch(`/api/chat?workspaceId=${activeWorkspace.id}`)
       ]);
 
+      let latestMap = usersByIdRef.current;
       if (membersRes.ok) {
         const list: any[] = await membersRes.json();
         const mapping: Record<string, ApiUser> = {};
@@ -606,12 +610,14 @@ export default function ChatsPage() {
             userMapping[u.username.toLowerCase()] = u.id;
           }
         });
+        usersByIdRef.current = mapping;
+        latestMap = mapping;
         setUsersById(mapping);
         setUserIdByUsername(userMapping);
       }
       if (chatsRes.ok) {
         const raw: ApiConversation[] = await chatsRes.json();
-        const norms = raw.map(normalizeConversation);
+        const norms = raw.map(c => normalizeConversation(c, latestMap));
         const uniqueNorms = Array.from(new Map(norms.map(c => [c.id, c])).values());
         setConversations(uniqueNorms);
         try {
@@ -1260,15 +1266,55 @@ export default function ChatsPage() {
     }
   };
 
-  const getConvDisplayName = (conv?: Conversation | null | undefined) => {
+  const getConvDisplayName = useCallback((conv?: Conversation | null | undefined) => {
     if (!conv) return 'Conversation';
-    if (conv.name) return conv.name;
-    if (conv.type === 'direct' && conv.memberNames) {
-      const otherId = conv.members.find(id => id !== user?.id);
-      if (otherId) return conv.memberNames[otherId] ?? 'Unknown';
+    if (conv.type === 'direct') {
+      const otherId = conv.members.find(id => id !== user?.id) || (conv.members.length > 0 ? conv.members[0] : null);
+      if (otherId) {
+        const u = usersById[otherId] || usersByIdRef.current[otherId];
+        if (u?.displayName) return u.displayName;
+        if (u?.username) return u.username;
+        if (conv.memberNames && conv.memberNames[otherId] && conv.memberNames[otherId] !== 'Unknown') {
+          return conv.memberNames[otherId];
+        }
+      }
     }
+    if (conv.name) return conv.name;
     return 'Conversation';
-  };
+  }, [user?.id, usersById]);
+
+  // Auto-heal cached conversations when usersById is populated
+  useEffect(() => {
+    if (Object.keys(usersById).length > 0) {
+      setConversations(prev => {
+        let changed = false;
+        const next = prev.map(c => {
+          if (c.type === 'direct') {
+            const otherId = c.members.find(id => id !== user?.id) || c.members[0];
+            const u = otherId ? usersById[otherId] : null;
+            if (u && (!c.memberNames?.[otherId] || c.memberNames[otherId] === 'Unknown')) {
+              changed = true;
+              return {
+                ...c,
+                memberNames: {
+                  ...(c.memberNames || {}),
+                  [otherId]: u.displayName || u.username
+                }
+              };
+            }
+          }
+          return c;
+        });
+        if (changed) {
+          try {
+            setStoredItem('cached_conversations', JSON.stringify(next));
+          } catch {}
+          return next;
+        }
+        return prev;
+      });
+    }
+  }, [usersById, user?.id]);
 
   // Reusable helper to retrieve linked CRM client for any conversation
   const getLinkedClientForConv = useCallback((conv: Conversation | null | undefined): Client | null => {
@@ -2002,7 +2048,18 @@ export default function ChatsPage() {
         const clean = newChatUsername.trim().replace('@', '').toLowerCase();
         participantId = userIdByUsername[clean];
         if (!participantId) {
-          alert('Username not found in workspace');
+          const matched = Object.values(usersById).find(u => 
+            u.username.toLowerCase() === clean || 
+            (u.displayName && u.displayName.toLowerCase() === clean) ||
+            (u.email && u.email.toLowerCase() === clean) ||
+            (u.displayName && u.displayName.toLowerCase().includes(clean))
+          );
+          if (matched) {
+            participantId = matched.id;
+          }
+        }
+        if (!participantId) {
+          alert(`User "${newChatUsername}" not found. Please pick a team member below or enter their exact @username.`);
           setCreatingChat(false);
           return;
         }
@@ -4712,10 +4769,48 @@ export default function ChatsPage() {
               </div>
 
               {newChatType === 'direct' ? (
-                <div>
-                  <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Username *</label>
-                  <input required type="text" placeholder="e.g. @john_doe" value={newChatUsername} onChange={e => setNewChatUsername(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-slate-205 focus:outline-none transition-all" />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Username or Member *</label>
+                    <input required type="text" placeholder="Type @username or search name..." value={newChatUsername} onChange={e => setNewChatUsername(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-slate-205 focus:outline-none transition-all" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Pick Team Member</label>
+                    <div className="max-h-[160px] overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-xl p-2 bg-slate-50/50 dark:bg-slate-950/20">
+                      {Object.values(usersById)
+                        .filter(u => u.id !== user?.id && (
+                          !newChatUsername || 
+                          u.username.toLowerCase().includes(newChatUsername.replace('@', '').toLowerCase()) ||
+                          (u.displayName && u.displayName.toLowerCase().includes(newChatUsername.toLowerCase()))
+                        ))
+                        .map(u => {
+                          const isSelected = newChatUsername.replace('@', '').toLowerCase() === u.username.toLowerCase();
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => setNewChatUsername(`@${u.username}`)}
+                              className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition-all ${
+                                isSelected ? 'bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                              }`}
+                            >
+                              <div className="h-7 w-7 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden flex items-center justify-center font-bold text-xs shrink-0">
+                                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} className="h-full w-full object-cover" /> : (u.displayName || u.username)[0]?.toUpperCase()}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-slate-850 dark:text-slate-100 truncate">{u.displayName || u.username}</p>
+                                <p className="text-[10px] text-slate-400 font-medium truncate">@{u.username}</p>
+                              </div>
+                              {isSelected && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      {Object.values(usersById).filter(u => u.id !== user?.id).length === 0 && (
+                        <p className="p-2 text-center text-xs text-slate-400">No other team members found</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <>

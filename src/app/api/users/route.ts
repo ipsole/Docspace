@@ -34,9 +34,24 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { displayName, email, bio, avatar, status, theme, preferences, oldPassword, newPassword } = body;
+    const { username, displayName, email, bio, avatar, status, theme, preferences, oldPassword, newPassword } = body;
 
     const updates: any = {};
+
+    if (username !== undefined) {
+      const cleanUsername = username.trim().toLowerCase();
+      if (!/^[a-z0-9_.-]{2,30}$/.test(cleanUsername)) {
+        return NextResponse.json({ error: 'Username must be 2-30 characters (letters, numbers, _, ., -)' }, { status: 400 });
+      }
+      if (cleanUsername !== currentUser.username.toLowerCase()) {
+        const allUsers = await listUsers();
+        const existing = allUsers.find(u => u.username.toLowerCase() === cleanUsername && u.id !== currentUser.id);
+        if (existing) {
+          return NextResponse.json({ error: 'Username is already taken' }, { status: 400 });
+        }
+        updates.username = cleanUsername;
+      }
+    }
 
     if (displayName !== undefined) {
       if (displayName.trim().length === 0) {

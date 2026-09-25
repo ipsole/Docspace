@@ -212,7 +212,10 @@ export default function StoragePage() {
   const fetchDataCenter = async () => {
     setLoadingCategories(true);
     try {
-      const res = await fetch('/api/admin/explorer');
+      const url = activeWorkspace?.id 
+        ? `/api/admin/explorer?workspaceId=${encodeURIComponent(activeWorkspace.id)}` 
+        : '/api/admin/explorer';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setCategories(data.categories || []);
@@ -256,7 +259,7 @@ export default function StoragePage() {
     if (user) {
       fetchDataCenter();
     }
-  }, [user]);
+  }, [user, activeWorkspace?.id]);
 
   // Load all files list when switching to non-directory view
   useEffect(() => {

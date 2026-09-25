@@ -1,9 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
-import { STORAGE_ROOT, cleanStaleTempUploads } from '@/lib/storage/storage';
+import { STORAGE_ROOT, cleanStaleTempUploads, safeReadFile, safeWriteFile } from '@/lib/storage/storage';
 import { getCurrentUser } from '@/lib/auth';
 import { listWorkspaceMembers, listWorkspacesForUser } from '@/lib/services/workspace';
+import { isR2Enabled, listFromR2, getFromR2, deleteFromR2 } from '@/lib/storage/r2Adapter';
+import { isFirestoreEnabled, firestoreGet, firestoreSet, firestoreDelete, firestoreListDocs } from '@/lib/storage/firestoreAdapter';
+import { getFirestoreDb } from '@/lib/firebase/admin';
+import { listClients } from '@/lib/services/crm';
+import { listProjects } from '@/lib/services/project';
+
+const STANDARD_DIRS = [
+  'uploads',
+  'avatars',
+  'attachments',
+  'contracts',
+  'temp_uploads',
+  'users',
+  'workspaces',
+  'clients',
+  'projects',
+  'tasks',
+  'invoices',
+  'payments',
+  'crm',
+  'conversations',
+  'messages',
+  'wiki',
+  'calendar',
+  'events',
+  'notifications',
+  'logs',
+  'analytics',
+  'settings',
+  'templates',
+  'backups'
+];
 
 async function checkExplorerAccess(user: any, request: NextRequest, isWrite: boolean = false): Promise<boolean> {
   if (user.role === 'admin') return true;
@@ -30,15 +62,17 @@ async function checkExplorerAccess(user: any, request: NextRequest, isWrite: boo
   return false;
 }
 
-// Helper to recursively get directory size in bytes and file count
+// Helper to recursively get directory size in bytes and file count from local disk
 async function getDirStats(dirPath: string): Promise<{ sizeBytes: number; fileCount: number }> {
   let sizeBytes = 0;
   let fileCount = 0;
   try {
     const files = await fs.readdir(dirPath);
     for (const file of files) {
+      if (file.startsWith('.')) continue;
       const filePath = path.join(dirPath, file);
-      const stats = await fs.stat(filePath);
+      const stats = await fs.stat(filePath).catch(() => null);
+      if (!stats) continue;
       if (stats.isDirectory()) {
         const subStats = await getDirStats(filePath);
         sizeBytes += subStats.sizeBytes;
@@ -54,14 +88,32 @@ async function getDirStats(dirPath: string): Promise<{ sizeBytes: number; fileCo
   return { sizeBytes, fileCount };
 }
 
-// Fetch all Clients
-async function getClients(): Promise<any[]> {
+// Fetch all Clients (workspace-scoped or cloud-wide)
+async function getClients(workspaceId?: string | null): Promise<any[]> {
+  try {
+    if (workspaceId) {
+      const cList = await listClients(workspaceId);
+      if (cList && cList.length > 0) {
+        return cList.map(c => ({ id: c.id, companyName: c.companyName || c.contactPerson }));
+      }
+    }
+  } catch {}
+
+  if (isFirestoreEnabled()) {
+    try {
+      const docs = await firestoreListDocs<any>('clients');
+      if (docs && docs.length > 0) {
+        return docs.map(d => ({ id: d.id, companyName: d.data?.companyName || d.data?.contactPerson || d.id }));
+      }
+    } catch {}
+  }
+
   const dir = path.join(STORAGE_ROOT, 'clients');
   const clients: any[] = [];
   try {
     const files = await fs.readdir(dir);
     for (const f of files) {
-      if (f.endsWith('.json')) {
+      if (f.endsWith('.json') && !f.startsWith('.')) {
         const content = await fs.readFile(path.join(dir, f), 'utf-8');
         const parsed = JSON.parse(content);
         clients.push({ id: parsed.id, companyName: parsed.companyName || parsed.contactPerson });
@@ -71,14 +123,32 @@ async function getClients(): Promise<any[]> {
   return clients;
 }
 
-// Fetch all Projects
-async function getProjects(): Promise<any[]> {
+// Fetch all Projects (workspace-scoped or cloud-wide)
+async function getProjects(workspaceId?: string | null): Promise<any[]> {
+  try {
+    if (workspaceId) {
+      const pList = await listProjects(workspaceId);
+      if (pList && pList.length > 0) {
+        return pList.map(p => ({ id: p.id, name: p.name, clientId: p.clientId }));
+      }
+    }
+  } catch {}
+
+  if (isFirestoreEnabled()) {
+    try {
+      const docs = await firestoreListDocs<any>('projects');
+      if (docs && docs.length > 0) {
+        return docs.map(d => ({ id: d.id, name: d.data?.name || d.id, clientId: d.data?.clientId }));
+      }
+    } catch {}
+  }
+
   const dir = path.join(STORAGE_ROOT, 'projects');
   const projects: any[] = [];
   try {
     const files = await fs.readdir(dir);
     for (const f of files) {
-      if (f.endsWith('.json')) {
+      if (f.endsWith('.json') && !f.startsWith('.')) {
         const content = await fs.readFile(path.join(dir, f), 'utf-8');
         const parsed = JSON.parse(content);
         projects.push({ id: parsed.id, name: parsed.name, clientId: parsed.clientId });
@@ -92,8 +162,8 @@ async function getProjects(): Promise<any[]> {
 async function getFileMetadata(): Promise<any> {
   const filePath = path.join(STORAGE_ROOT, 'settings', 'file_metadata.json');
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(content);
+    const content = await safeReadFile(filePath);
+    return content ? JSON.parse(content) : {};
   } catch {
     return {};
   }
@@ -102,7 +172,6 @@ async function getFileMetadata(): Promise<any> {
 // Sanitization to prevent path traversal
 function sanitizePath(param: string | null): boolean {
   if (!param) return false;
-  // block empty, path separators, or directory traversal
   return !param.includes('..') && !param.includes('/') && !param.includes('\\') && param.trim().length > 0;
 }
 
@@ -126,16 +195,46 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
     const file = searchParams.get('file');
+    const workspaceId = searchParams.get('workspaceId');
 
     // Scenario 1: Category and File provided -> Read file content
     if (category && file) {
       if (!sanitizePath(category) || !sanitizeRelativePath(file)) {
         return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
       }
+
+      // 1. Try reading from Firestore if .json
+      if (isFirestoreEnabled() && file.endsWith('.json')) {
+        const docId = file.replace(/\.json$/, '');
+        try {
+          const doc = await firestoreGet(category, docId);
+          if (doc !== null) {
+            return NextResponse.json({ content: JSON.stringify(doc, null, 2) });
+          }
+        } catch {}
+      }
+
+      // 2. Try reading from Cloudflare R2 if enabled
+      if (isR2Enabled()) {
+        try {
+          const r2Key = `${category}/${file}`;
+          const r2Obj = await getFromR2(r2Key);
+          if (r2Obj && r2Obj.stream) {
+            const buf = await r2Obj.stream.transformToByteArray();
+            const text = Buffer.from(buf).toString('utf-8');
+            return NextResponse.json({ content: text });
+          }
+        } catch {}
+      }
+
+      // 3. Fallback to reading file from local storage
       const filePath = path.join(STORAGE_ROOT, category, file);
       try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        return NextResponse.json({ content });
+        const content = await safeReadFile(filePath);
+        if (content !== null) {
+          return NextResponse.json({ content });
+        }
+        return NextResponse.json({ error: 'File not found' }, { status: 404 });
       } catch (err: any) {
         if (err.code === 'ENOENT') {
           return NextResponse.json({ error: 'File not found' }, { status: 404 });
@@ -160,75 +259,200 @@ export async function GET(request: NextRequest) {
         } catch {}
       }
 
+      const fileMap = new Map<string, { name: string; sizeBytes: number; updatedAt: string; isFile: boolean }>();
+
+      // 1. If Cloudflare R2 is enabled, check R2 objects
+      if (isR2Enabled()) {
+        try {
+          const prefix = subpath ? `${category}/${subpath}/` : `${category}/`;
+          const r2Files = await listFromR2(prefix);
+          for (const rf of r2Files) {
+            const relKey = rf.key.startsWith(prefix) ? rf.key.substring(prefix.length) : rf.key;
+            if (!relKey) continue;
+            const firstSegment = relKey.split('/')[0];
+            const isDir = relKey.includes('/');
+            if (!fileMap.has(firstSegment)) {
+              fileMap.set(firstSegment, {
+                name: firstSegment,
+                sizeBytes: isDir ? 0 : rf.size,
+                updatedAt: rf.lastModified || new Date().toISOString(),
+                isFile: !isDir,
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('R2 category listing error:', err);
+        }
+      }
+
+      // 2. If Google Firestore is enabled, check Firestore documents
+      if (isFirestoreEnabled() && !subpath) {
+        try {
+          const docs = await firestoreListDocs<any>(category);
+          for (const d of docs) {
+            const jsonStr = JSON.stringify(d.data || {});
+            const fileName = `${d.id}.json`;
+            const updatedAt = d.data?.updatedAt || d.data?.createdAt || new Date().toISOString();
+            fileMap.set(fileName, {
+              name: fileName,
+              sizeBytes: Buffer.byteLength(jsonStr, 'utf8'),
+              updatedAt,
+              isFile: true,
+            });
+          }
+        } catch (err) {
+          console.warn('Firestore category docs error:', err);
+        }
+      }
+
+      // 3. Local disk files (fallback / merge)
       const dirPath = subpath 
         ? path.join(STORAGE_ROOT, category, subpath)
         : path.join(STORAGE_ROOT, category);
 
       try {
-        const files = await fs.readdir(dirPath);
-        const filesList = [];
-        for (const fn of files) {
+        const localFiles = await fs.readdir(dirPath);
+        for (const fn of localFiles) {
           if (fn.startsWith('.')) continue;
           const filePath = path.join(dirPath, fn);
-          const stats = await fs.stat(filePath);
-          filesList.push({
-            name: fn,
-            sizeBytes: stats.isDirectory() ? 0 : stats.size,
-            updatedAt: stats.mtime.toISOString(),
-            isFile: stats.isFile()
-          });
-        }
-        // Sort folders first, then files by mtime desc
-        filesList.sort((a, b) => {
-          if (a.isFile !== b.isFile) {
-            return a.isFile ? 1 : -1; // folders first
+          const stats = await fs.stat(filePath).catch(() => null);
+          if (stats && !fileMap.has(fn)) {
+            fileMap.set(fn, {
+              name: fn,
+              sizeBytes: stats.isDirectory() ? 0 : stats.size,
+              updatedAt: stats.mtime.toISOString(),
+              isFile: stats.isFile(),
+            });
           }
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-        });
-        return NextResponse.json({ files: filesList });
-      } catch (err: any) {
-        if (err.code === 'ENOENT') {
-          return NextResponse.json({ error: 'Category or subfolder not found' }, { status: 404 });
         }
-        return NextResponse.json({ error: 'Failed to list files' }, { status: 500 });
-      }
+      } catch {}
+
+      const filesList = Array.from(fileMap.values());
+      // Sort folders first, then files by updatedAt desc
+      filesList.sort((a, b) => {
+        if (a.isFile !== b.isFile) {
+          return a.isFile ? 1 : -1;
+        }
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+
+      return NextResponse.json({ files: filesList });
     }
 
     // Scenario 3: No parameters -> List all categories, clients, projects, and file metadata
-    const categoriesList = [];
+    const categoryMap = new Map<string, { name: string; path: string; sizeBytes: number; fileCount: number }>();
+
+    // 1. Initialize with standard directories so they always display in UI
+    for (const d of STANDARD_DIRS) {
+      categoryMap.set(d, {
+        name: d,
+        path: `storage/${d}`,
+        sizeBytes: 0,
+        fileCount: 0,
+      });
+    }
+
+    // 2. Query Cloudflare R2 if enabled
+    if (isR2Enabled()) {
+      try {
+        const r2Entries = await listFromR2('');
+        for (const entry of r2Entries) {
+          const slashIdx = entry.key.indexOf('/');
+          const cat = slashIdx > -1 ? entry.key.substring(0, slashIdx) : 'uploads';
+          const existing = categoryMap.get(cat) || {
+            name: cat,
+            path: `storage/${cat}`,
+            sizeBytes: 0,
+            fileCount: 0,
+          };
+          existing.sizeBytes += entry.size;
+          existing.fileCount += 1;
+          categoryMap.set(cat, existing);
+        }
+      } catch (err) {
+        console.warn('R2 listing error in explorer:', err);
+      }
+    }
+
+    // 3. Query Google Firestore if enabled
+    if (isFirestoreEnabled()) {
+      try {
+        const db = getFirestoreDb();
+        if (db) {
+          const firestoreCollections = [
+            'users', 'workspaces', 'clients', 'projects', 'tasks',
+            'invoices', 'payments', 'crm', 'conversations', 'messages',
+            'wiki', 'calendar', 'events', 'notifications', 'logs',
+            'analytics', 'settings', 'templates', 'backups'
+          ];
+          await Promise.all(
+            firestoreCollections.map(async (colName) => {
+              try {
+                const snap = await db.collection(colName).get();
+                if (snap.size > 0) {
+                  let totalBytes = 0;
+                  snap.docs.forEach(doc => {
+                    const str = JSON.stringify(doc.data() || {});
+                    totalBytes += Buffer.byteLength(str, 'utf8');
+                  });
+                  const existing = categoryMap.get(colName) || {
+                    name: colName,
+                    path: `storage/${colName}`,
+                    sizeBytes: 0,
+                    fileCount: 0,
+                  };
+                  existing.fileCount = Math.max(existing.fileCount, snap.size);
+                  existing.sizeBytes = Math.max(existing.sizeBytes, totalBytes);
+                  categoryMap.set(colName, existing);
+                }
+              } catch {}
+            })
+          );
+        }
+      } catch (err) {
+        console.warn('Firestore collections error in explorer:', err);
+      }
+    }
+
+    // 4. Local disk scan (for development or local files)
     try {
       const dirs = await fs.readdir(STORAGE_ROOT);
       for (const dir of dirs) {
         if (dir.startsWith('.')) continue;
         const dirPath = path.join(STORAGE_ROOT, dir);
-        const stats = await fs.stat(dirPath);
-        if (stats.isDirectory()) {
+        const stats = await fs.stat(dirPath).catch(() => null);
+        if (stats && stats.isDirectory()) {
           const folderStats = await getDirStats(dirPath);
-          categoriesList.push({
+          const existing = categoryMap.get(dir) || {
             name: dir,
             path: `storage/${dir}`,
-            sizeBytes: folderStats.sizeBytes,
-            fileCount: folderStats.fileCount
-          });
+            sizeBytes: 0,
+            fileCount: 0,
+          };
+          existing.sizeBytes = Math.max(existing.sizeBytes, folderStats.sizeBytes);
+          existing.fileCount = Math.max(existing.fileCount, folderStats.fileCount);
+          categoryMap.set(dir, existing);
         }
       }
-      categoriesList.sort((a, b) => b.sizeBytes - a.sizeBytes); // sort by size desc
-      
-      const clientsList = await getClients();
-      const projectsList = await getProjects();
-      const metadataMap = await getFileMetadata();
+    } catch {}
 
-      return NextResponse.json({ 
-        categories: categoriesList,
-        clients: clientsList,
-        projects: projectsList,
-        metadata: metadataMap
-      });
-    } catch {
-      return NextResponse.json({ error: 'Failed to list categories' }, { status: 500 });
-    }
+    const categoriesList = Array.from(categoryMap.values()).sort((a, b) => b.sizeBytes - a.sizeBytes);
+    
+    const [clientsList, projectsList, metadataMap] = await Promise.all([
+      getClients(workspaceId),
+      getProjects(workspaceId),
+      getFileMetadata()
+    ]);
+
+    return NextResponse.json({ 
+      categories: categoriesList,
+      clients: clientsList,
+      projects: projectsList,
+      metadata: metadataMap
+    });
 
   } catch (error: any) {
+    console.error('Explorer GET error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
@@ -290,12 +514,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing metadata' }, { status: 400 });
       }
       const metadataPath = path.join(STORAGE_ROOT, 'settings', 'file_metadata.json');
-      const tempPath = `${metadataPath}.tmp`;
-      
-      await fs.mkdir(path.dirname(metadataPath), { recursive: true });
-      await fs.writeFile(tempPath, JSON.stringify(metadata, null, 2), 'utf-8');
-      await fs.rename(tempPath, metadataPath);
-      
+      await safeWriteFile(metadataPath, JSON.stringify(metadata, null, 2));
       return NextResponse.json({ success: true });
     }
 
@@ -310,16 +529,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing content payload' }, { status: 400 });
     }
 
-    const dirPath = path.join(STORAGE_ROOT, category);
-    const filePath = path.join(dirPath, file);
+    // Save JSON to Firestore if enabled
+    if (file.endsWith('.json') && isFirestoreEnabled()) {
+      try {
+        const docId = file.replace(/\.json$/, '');
+        const parsed = JSON.parse(content);
+        await firestoreSet(category, docId, parsed);
+      } catch {}
+    }
 
-    // Ensure directory exists
-    await fs.mkdir(dirPath, { recursive: true });
-
-    // Atomic write
-    const tempPath = `${filePath}.tmp`;
-    await fs.writeFile(tempPath, content, 'utf-8');
-    await fs.rename(tempPath, filePath);
+    // Save locally safely
+    const filePath = path.join(STORAGE_ROOT, category, file);
+    await safeWriteFile(filePath, content);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -346,31 +567,44 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
     }
 
+    // Delete from Firestore if .json
+    if (file.endsWith('.json') && isFirestoreEnabled()) {
+      try {
+        const docId = file.replace(/\.json$/, '');
+        await firestoreDelete(category, docId);
+      } catch {}
+    }
+
+    // Delete from Cloudflare R2 if enabled
+    if (isR2Enabled()) {
+      try {
+        await deleteFromR2(`${category}/${file}`);
+      } catch {}
+    }
+
+    // Delete local file if present
     const filePath = path.join(STORAGE_ROOT, category, file);
     try {
       await fs.unlink(filePath);
-      
-      // Also clean up metadata entries if applicable
-      const metadataPath = path.join(STORAGE_ROOT, 'settings', 'file_metadata.json');
-      try {
-        const content = await fs.readFile(metadataPath, 'utf-8');
+    } catch {}
+
+    // Clean up metadata
+    const metadataPath = path.join(STORAGE_ROOT, 'settings', 'file_metadata.json');
+    try {
+      const content = await safeReadFile(metadataPath);
+      if (content) {
         const metadata = JSON.parse(content);
         const fileKey = `${category}/${file}`;
         if (metadata[fileKey]) {
           delete metadata[fileKey];
-          await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+          await safeWriteFile(metadataPath, JSON.stringify(metadata, null, 2));
         }
-      } catch {}
-
-      return NextResponse.json({ success: true });
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
-        return NextResponse.json({ error: 'File not found' }, { status: 404 });
       }
-      return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
-    }
+    } catch {}
+
+    return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to delete file' }, { status: 500 });
   }
 }
 

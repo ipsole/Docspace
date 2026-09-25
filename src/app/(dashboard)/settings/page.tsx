@@ -108,6 +108,7 @@ export default function SettingsPage() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Profile state
+  const [username, setUsername] = useState(user?.username ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
@@ -149,6 +150,7 @@ export default function SettingsPage() {
   const [editMemberError, setEditMemberError] = useState<string | null>(null);
 
   useEffect(() => {
+    setUsername(user?.username ?? '');
     setDisplayName(user?.displayName ?? '');
     setEmail(user?.email ?? '');
     setBio(user?.bio ?? '');
@@ -204,14 +206,25 @@ export default function SettingsPage() {
       const res = await fetch('/api/users', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: displayName.trim(), email: email.trim(), bio: bio.trim(), avatar: avatar || null }),
+        body: JSON.stringify({ 
+          username: username.trim().toLowerCase(),
+          displayName: displayName.trim(), 
+          email: email.trim(), 
+          bio: bio.trim(), 
+          avatar: avatar || null 
+        }),
       });
       if (res.ok) {
         updateUserContext(await res.json());
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Failed to save profile');
       }
-    } catch { /* ignore */ }
+    } catch { 
+      alert('Network error while saving profile');
+    }
     finally { setSaving(false); }
   };
 
@@ -659,11 +672,25 @@ export default function SettingsPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-[#62748a] mb-1.5">Username</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">@</span>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
+                    placeholder="e.g. john_doe"
+                    className="w-full pl-8 pr-4 py-2.5 neu-input rounded-2xl text-xs font-semibold text-[#2d3748]"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Unique handle used to start direct chats and mention you.</p>
+              </div>
+              <div>
                 <label className="block text-[10px] font-black uppercase tracking-wider text-[#62748a] mb-1.5">Display Name</label>
                 <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
                   className="w-full px-4 py-2.5 neu-input rounded-2xl text-xs font-semibold text-[#2d3748]" />
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-[10px] font-black uppercase tracking-wider text-[#62748a] mb-1.5">Email</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                   className="w-full px-4 py-2.5 neu-input rounded-2xl text-xs font-semibold text-[#2d3748]" />
