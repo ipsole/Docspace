@@ -99,6 +99,69 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
+  // --- CHAT UNREAD NOTIFICATIONS & CONNECTION WARMUP ---
+  const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
+
+  const warmChatConnection = () => {
+    if (typeof window === 'undefined') return;
+    const now = Date.now();
+    const lastWarmup = Number(sessionStorage.getItem('last_chat_warmup') || '0');
+    if (now - lastWarmup < 45000) return; // Prevent spamming warmup within 45s
+    sessionStorage.setItem('last_chat_warmup', String(now));
+    fetch('/api/chat/warmup', { method: 'POST', keepalive: true }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!activeWorkspace?.id || !user?.id) return;
+    const wsId = activeWorkspace.id;
+    const userId = user.id;
+
+    const handleUnreadEvent = (e: any) => {
+      if (!e.detail || !e.detail.workspaceId || e.detail.workspaceId === wsId) {
+        setUnreadChatCount(Number(e.detail?.count) || 0);
+      }
+    };
+    window.addEventListener('docspace_unread_chat_count', handleUnreadEvent);
+
+    // Initial cache hydrate
+    try {
+      const cached = localStorage.getItem(`docspace_unread_chat_count_${wsId}`);
+      if (cached !== null) {
+        setUnreadChatCount(Number(cached) || 0);
+      }
+    } catch {}
+
+    // Background check to calculate unread even if user is on other pages (Dashboard, Invoices, etc.)
+    const checkUnread = async () => {
+      try {
+        const res = await fetch(`/api/chat?workspaceId=${wsId}`);
+        if (!res.ok) return;
+        const convos: any[] = await res.json();
+        let count = 0;
+        for (const c of convos) {
+          const lastMsg = c.lastMessage;
+          if (!lastMsg || !lastMsg.createdAt) continue;
+          if (lastMsg.senderId && lastMsg.senderId === userId) continue;
+          const lastRead = localStorage.getItem(`chat_last_read_${userId}_${c.id}`);
+          if (!lastRead || new Date(lastMsg.createdAt).getTime() > new Date(lastRead).getTime()) {
+            count++;
+          }
+        }
+        setUnreadChatCount(count);
+        try {
+          localStorage.setItem(`docspace_unread_chat_count_${wsId}`, String(count));
+        } catch {}
+      } catch {}
+    };
+
+    checkUnread();
+    const interval = setInterval(checkUnread, 30000);
+    return () => {
+      window.removeEventListener('docspace_unread_chat_count', handleUnreadEvent);
+      clearInterval(interval);
+    };
+  }, [activeWorkspace?.id, user?.id]);
+
   // Restore scroll position when tab/pathname changes
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -288,12 +351,20 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       ? (pathname === itemPath && (typeof window !== 'undefined' && window.location.search.includes(itemQuery)))
                       : (pathname === itemPath || (itemPath !== '/' && pathname?.startsWith(itemPath + '/')));
 
+                    const isChat = item.href === '/chats';
+                    const showBadge = isChat && unreadChatCount > 0;
+
                     if (isCollapsed) {
                       return (
                         <Link
                           key={item.href}
                           href={item.href}
-                          onClick={() => setSidebarMobileOpen(false)}
+                          onMouseEnter={() => { if (isChat) warmChatConnection(); }}
+                          onTouchStart={() => { if (isChat) warmChatConnection(); }}
+                          onClick={() => {
+                            setSidebarMobileOpen(false);
+                            if (isChat) warmChatConnection();
+                          }}
                           className="w-full flex justify-center py-0.5"
                         >
                           <div
@@ -307,8 +378,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                             title={item.label}
                           >
                             <Icon className="h-4 w-4 stroke-[1.8]" />
-                            {isActive && (
-                              <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-gray-900 ring-2 ring-white" />
+                            {showBadge ? (
+                              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-indigo-600 text-[9px] font-bold text-white ring-2 ring-white">
+                                {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                              </span>
+                            ) : (
+                              isActive && (
+                                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-gray-900 ring-2 ring-white" />
+                              )
                             )}
                           </div>
                         </Link>
@@ -319,7 +396,12 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       <Link
                         key={item.href}
                         href={item.href}
-                        onClick={() => setSidebarMobileOpen(false)}
+                        onMouseEnter={() => { if (isChat) warmChatConnection(); }}
+                        onTouchStart={() => { if (isChat) warmChatConnection(); }}
+                        onClick={() => {
+                          setSidebarMobileOpen(false);
+                          if (isChat) warmChatConnection();
+                        }}
                         className={`
                           flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
                           ${isActive
@@ -332,6 +414,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                           <Icon className={`h-4 w-4 stroke-[1.8] shrink-0 ${isActive ? 'text-gray-950' : 'text-gray-400'}`} />
                           <span className="truncate">{item.label}</span>
                         </div>
+                        {showBadge && (
+                          <span className="ml-auto shrink-0 flex h-4 min-w-4 px-1.5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-2xs">
+                            {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}

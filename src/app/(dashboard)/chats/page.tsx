@@ -53,6 +53,7 @@ interface Conversation {
   memberNames?: Record<string, string>;
   createdAt: string;
   lastMessage?: string;
+  lastMessageSenderId?: string;
   lastMessageAt?: string;
   unreadCount?: number;
   clientId?: string | null;
@@ -80,7 +81,7 @@ interface ApiConversation {
   participants: string[];
   createdAt: string;
   updatedAt: string;
-  lastMessage: { content: string; createdAt: string } | null;
+  lastMessage: { id?: string; senderId?: string; content: string; createdAt: string } | null;
   clientId?: string | null;
 }
 
@@ -553,6 +554,59 @@ export default function ChatsPage() {
     }
   }, [activeConv?.id]);
 
+  const markConversationAsRead = useCallback((convId: string) => {
+    if (!user?.id || !convId) return;
+    try {
+      setStoredItem(`chat_last_read_${user.id}_${convId}`, new Date().toISOString());
+    } catch {}
+    setConversations(prev => {
+      let changed = false;
+      const next = prev.map(c => {
+        if (c.id === convId && (c.unreadCount || 0) > 0) {
+          changed = true;
+          return { ...c, unreadCount: 0 };
+        }
+        return c;
+      });
+      if (!changed) return prev;
+      try {
+        setStoredItem('cached_conversations', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [user?.id]);
+
+  // Automatically mark active conversation read
+  useEffect(() => {
+    if (activeConv?.id && user?.id) {
+      markConversationAsRead(activeConv.id);
+    }
+  }, [activeConv?.id, user?.id, markConversationAsRead]);
+
+  // Synchronize total unread count with layout navigation badge and storage
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+    const totalUnread = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+    try {
+      localStorage.setItem(`docspace_unread_chat_count_${activeWorkspace.id}`, String(totalUnread));
+      window.dispatchEvent(new CustomEvent('docspace_unread_chat_count', {
+        detail: { workspaceId: activeWorkspace.id, count: totalUnread }
+      }));
+    } catch {}
+  }, [conversations, activeWorkspace?.id]);
+
+  // Warm up backend connection when chat page loads
+  useEffect(() => {
+    try {
+      const now = Date.now();
+      const lastWarmup = Number(sessionStorage.getItem('last_chat_warmup') || '0');
+      if (now - lastWarmup >= 45000) {
+        sessionStorage.setItem('last_chat_warmup', String(now));
+        fetch('/api/chat/warmup', { method: 'POST', keepalive: true }).catch(() => {});
+      }
+    } catch {}
+  }, []);
+
   // Keep scrolled to bottom when messages arrive if user is viewing latest messages
   useEffect(() => {
     if (messages.length === 0) return;
@@ -601,6 +655,22 @@ export default function ChatsPage() {
       return acc;
     }, {});
 
+    const currentUserId = userRef.current?.id;
+    const lastReadStr = (typeof window !== 'undefined' && currentUserId)
+      ? getStoredItem(`chat_last_read_${currentUserId}_${conv.id}`)
+      : null;
+    const lastMsgTime = conv.lastMessage?.createdAt ? new Date(conv.lastMessage.createdAt).getTime() : 0;
+    const lastReadTime = lastReadStr ? new Date(lastReadStr).getTime() : 0;
+    const isSentByMe = Boolean(conv.lastMessage?.senderId && currentUserId && conv.lastMessage.senderId === currentUserId);
+    const isActive = activeConvIdRef.current === conv.id;
+
+    let unreadCount = 0;
+    if (!isActive && !isSentByMe && lastMsgTime > 0) {
+      if (!lastReadTime || lastMsgTime > lastReadTime) {
+        unreadCount = 1;
+      }
+    }
+
     return {
       id: conv.id,
       workspaceId: conv.workspaceId,
@@ -613,7 +683,9 @@ export default function ChatsPage() {
       memberNames,
       createdAt: conv.createdAt,
       lastMessage: conv.lastMessage?.content,
+      lastMessageSenderId: conv.lastMessage?.senderId,
       lastMessageAt: conv.lastMessage?.createdAt || conv.updatedAt,
+      unreadCount,
       clientId: conv.clientId || null,
     };
   }, []);
@@ -680,15 +752,20 @@ export default function ChatsPage() {
             if (!existing) return fresh;
             const existingTime = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
             const freshTime = fresh.lastMessageAt ? new Date(fresh.lastMessageAt).getTime() : 0;
+            const resolvedUnread = fresh.id === activeConvIdRef.current ? 0 : Math.max(existing.unreadCount || 0, fresh.unreadCount || 0);
             // Never overwrite a newer or optimistic lastMessage with older conversation summary
             if (existingTime > freshTime && existing.lastMessage) {
               return {
                 ...fresh,
                 lastMessage: existing.lastMessage,
-                lastMessageAt: existing.lastMessageAt
+                lastMessageAt: existing.lastMessageAt,
+                unreadCount: resolvedUnread
               };
             }
-            return fresh;
+            return {
+              ...fresh,
+              unreadCount: resolvedUnread
+            };
           });
 
           const sortedNorms = sortConversationsDeterministically(mergedNorms);
@@ -3493,7 +3570,7 @@ export default function ChatsPage() {
                           <div
                             key={`${client.id}-${conv.id}`}
                             onClick={() => {
-                              setConversations(prev => prev.map(item => item.id === conv.id ? { ...item, unreadCount: 0 } : item));
+                              markConversationAsRead(conv.id);
                               setNewMessageNotice(prev => prev?.chatId === conv.id ? null : prev);
                               setActiveConv({ ...conv, unreadCount: 0 });
                               setMobileView('chat');
@@ -3536,7 +3613,7 @@ export default function ChatsPage() {
                                 </p>
                                 <div className="flex items-center gap-1.5 shrink-0 ml-1">
                                   {Boolean(conv.unreadCount) && (
-                                    <span className="min-w-4 h-4 px-1 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 text-[9px] font-semibold flex items-center justify-center">
+                                    <span className="min-w-4.5 h-4.5 px-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
                                       {conv.unreadCount}
                                     </span>
                                   )}
@@ -3795,7 +3872,7 @@ export default function ChatsPage() {
                             <div
                               key={`${client.id}-${conv.id}`}
                               onClick={() => {
-                                setConversations(prev => prev.map(item => item.id === conv.id ? { ...item, unreadCount: 0 } : item));
+                                markConversationAsRead(conv.id);
                                 setNewMessageNotice(prev => prev?.chatId === conv.id ? null : prev);
                                 setActiveConv({ ...conv, unreadCount: 0 });
                                 setMobileView('chat');
@@ -3834,6 +3911,11 @@ export default function ChatsPage() {
                                     {getConvDisplayName(conv)}
                                   </p>
                                   <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                                    {Boolean(conv.unreadCount) && (
+                                      <span className="min-w-4.5 h-4.5 px-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
+                                        {conv.unreadCount}
+                                      </span>
+                                    )}
                                     {conv.lastMessageAt && (
                                       <span className="text-[9px] text-slate-400">{formatTime(conv.lastMessageAt)}</span>
                                     )}
@@ -3978,7 +4060,7 @@ export default function ChatsPage() {
                   <div
                     key={conv.id}
                     onClick={() => {
-                      setConversations(prev => prev.map(item => item.id === conv.id ? { ...item, unreadCount: 0 } : item));
+                      markConversationAsRead(conv.id);
                       setNewMessageNotice(prev => prev?.chatId === conv.id ? null : prev);
                       setActiveConv({ ...conv, unreadCount: 0 });
                       setMobileView('chat');
@@ -4042,7 +4124,7 @@ export default function ChatsPage() {
                             </span>
                           )}
                           {Boolean(conv.unreadCount) && (
-                            <span className="min-w-4 h-4 px-1 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 text-[9px] font-black flex items-center justify-center">
+                            <span className="min-w-4.5 h-4.5 px-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shadow-xs">
                               {conv.unreadCount}
                             </span>
                           )}
@@ -4592,7 +4674,8 @@ export default function ChatsPage() {
                   if (newMessageNotice && newMessageNotice.chatId !== activeConv.id) {
                     const target = conversations.find(conv => conv.id === newMessageNotice.chatId);
                     if (target) {
-                      setConversations(prev => prev.map(item => item.id === target.id ? { ...item, unreadCount: 0 } : item));
+                      markConversationAsRead(target.id);
+                      setNewMessageNotice(null);
                       setActiveConv({ ...target, unreadCount: 0 });
                       setMobileView('chat');
                     }
@@ -4723,6 +4806,16 @@ export default function ChatsPage() {
                       value={editingMsg ? editContent : input}
                       onChange={e => editingMsg ? setEditContent(e.target.value) : setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
+                      onFocus={() => {
+                        try {
+                          const now = Date.now();
+                          const lastWarmup = Number(sessionStorage.getItem('last_chat_warmup') || '0');
+                          if (now - lastWarmup >= 45000) {
+                            sessionStorage.setItem('last_chat_warmup', String(now));
+                            fetch('/api/chat/warmup', { method: 'POST', keepalive: true }).catch(() => {});
+                          }
+                        } catch {}
+                      }}
                       onPaste={(e) => {
                         const items = e.clipboardData.items;
                         for (let i = 0; i < items.length; i++) {
