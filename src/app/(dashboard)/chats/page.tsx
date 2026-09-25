@@ -1635,10 +1635,13 @@ export default function ChatsPage() {
     try {
       const res = await fetch(`/api/chat/message?chatId=${chatId}`);
       if (res.ok) {
-        // Discard if user already navigated to another chat or if an older request resolved late
+        // Only discard if the user has navigated to a DIFFERENT chat — seq bumped on chat switch
         if (activeConvIdRef.current !== chatId) return;
-        if (thisSeq < latestAppliedSeqRef.current) return;
-        latestAppliedSeqRef.current = thisSeq;
+        // Only discard if a NEWER non-silent fetch has already resolved (not just any seq bump)
+        if (thisSeq < latestAppliedSeqRef.current && !isSilentPoll) return;
+        if (!isSilentPoll) {
+          latestAppliedSeqRef.current = thisSeq;
+        }
 
         const raw: ApiMessage[] = await res.json();
         const serverMsgs = raw.map(m => normalizeMessage(m));
@@ -1662,11 +1665,29 @@ export default function ChatsPage() {
             }
           }
 
-          // Keep pending optimistic messages that haven't reconciled yet
-          const pendingTemps = prev.filter(m => m.id.startsWith('temp_') && !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId));
-          const combined = [...serverMsgs, ...pendingTemps];
-          messagesRef.current = combined;
-          return combined;
+          // Keep pending optimistic messages that haven't reconciled yet (temp_ OR real IDs not on server)
+          const serverIds = new Set(serverMsgs.map(m => m.id));
+          const pendingTemps = prev.filter(m =>
+            m.id.startsWith('temp_') &&
+            !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId)
+          );
+          const optimisticReal = prev.filter(m =>
+            !m.id.startsWith('temp_') &&
+            !serverIds.has(m.id) &&
+            m.senderId === userRef.current?.id
+          );
+
+          const combined = [...serverMsgs, ...pendingTemps, ...optimisticReal];
+          const seen = new Set<string>();
+          const deduped = combined.filter(m => {
+            if (seen.has(m.id)) return false;
+            seen.add(m.id);
+            return true;
+          });
+          deduped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+          messagesRef.current = deduped;
+          return deduped;
         });
 
         try {
@@ -2017,17 +2038,45 @@ export default function ChatsPage() {
 
         setMessages(prev => {
           if (activeConvIdRef.current !== currentChatId) return prev;
-          const pendingTemps = prev.filter(m => m.id.startsWith('temp_') && !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId));
-          const combined = [...serverMsgs, ...pendingTemps];
-          messagesRef.current = combined;
-          return combined;
+
+          // Preserve ALL temp (optimistic) messages that have NOT yet appeared in the server list.
+          // Match by content + senderId. This ensures that if Firestore snapshot fires BEFORE the
+          // server has replicated the new message, the optimistic message stays visible.
+          const pendingTemps = prev.filter(m =>
+            m.id.startsWith('temp_') &&
+            !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId)
+          );
+
+          // Also preserve any real messages the sender added optimistically that haven't yet
+          // appeared in this snapshot (Firestore replication lag). These will have real IDs
+          // from a POST response but may lag in snapshot delivery.
+          const serverIds = new Set(serverMsgs.map(m => m.id));
+          const optimisticReal = prev.filter(m =>
+            !m.id.startsWith('temp_') &&
+            !serverIds.has(m.id) &&
+            m.senderId === userRef.current?.id
+          );
+
+          const combined = [...serverMsgs, ...pendingTemps, ...optimisticReal];
+          // Deduplicate by id, keeping server version when both exist
+          const seen = new Set<string>();
+          const deduped = combined.filter(m => {
+            if (seen.has(m.id)) return false;
+            seen.add(m.id);
+            return true;
+          });
+          // Sort by createdAt to keep chronological order
+          deduped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+          messagesRef.current = deduped;
+          return deduped;
         });
 
         try {
           setStoredItem(`cached_msgs_${currentChatId}`, JSON.stringify(serverMsgs));
         } catch {}
 
-        if (serverMsgs.length > messagesRef.current.length) {
+        if (serverMsgs.length > (messagesRef.current.length - 1)) {
           setTimeout(() => scrollToBottom('smooth'), 40);
         }
 
@@ -2352,15 +2401,21 @@ export default function ChatsPage() {
         const savedMsg = await res.json();
         const normMsg = normalizeMessage(savedMsg);
         setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === tempId || (m.id.startsWith('temp_') && m.content === content));
+          if (activeConvIdRef.current !== activeConv.id) return prev;
+
+          // Try to replace the matching temp_ message
+          const idx = prev.findIndex(m => m.id === tempId || (m.id.startsWith('temp_') && m.content === content && m.senderId === normMsg.senderId));
           let updated: Message[];
           if (idx !== -1) {
             updated = [...prev];
             updated[idx] = normMsg;
           } else if (!prev.some(m => m.id === normMsg.id)) {
+            // Temp was already cleared by the snapshot but real message not there yet — add it
             updated = [...prev, normMsg];
+            updated.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
           } else {
-            updated = prev;
+            // Already in list (snapshot beat us to it), nothing to do
+            return prev;
           }
           messagesRef.current = updated;
           try {
