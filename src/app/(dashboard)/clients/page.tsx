@@ -664,6 +664,8 @@ export default function ClientsPage() {
 
     // Listen for task status changes from other pages (e.g. projects page)
     let bc: BroadcastChannel | null = null;
+    let bcInvoice: BroadcastChannel | null = null;
+    let bcClient: BroadcastChannel | null = null;
     try {
       bc = new BroadcastChannel('docspace_task_status');
       bc.onmessage = (event) => {
@@ -677,8 +679,36 @@ export default function ClientsPage() {
       };
     } catch {}
 
+    try {
+      bcInvoice = new BroadcastChannel('docspace_invoice_status');
+      bcInvoice.onmessage = (event) => {
+        const { invoiceId, status } = event.data || {};
+        if (!invoiceId || !status) return;
+        setInvoices(prev => {
+          const updated = prev.map(inv => inv.id === invoiceId ? { ...inv, status } : inv);
+          try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+      };
+    } catch {}
+
+    try {
+      bcClient = new BroadcastChannel('docspace_client_status');
+      bcClient.onmessage = (event) => {
+        const { clientId, status } = event.data || {};
+        if (!clientId || !status) return;
+        setClients(prev => {
+          const updated = prev.map(c => c.id === clientId ? { ...c, status } : c);
+          try { sessionStorage.setItem('cached_crm_clients', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+      };
+    } catch {}
+
     return () => {
       try { bc?.close(); } catch {}
+      try { bcInvoice?.close(); } catch {}
+      try { bcClient?.close(); } catch {}
     };
   }, []);
 
@@ -1124,21 +1154,33 @@ export default function ClientsPage() {
 
   const handleUpdateInvoiceStatus = async (id: string, newStatus: any) => {
     if (!activeWorkspace) return;
+
+    // 1. Instant optimistic update — 0ms
+    setInvoices(prev => {
+      const updated = prev.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv);
+      try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    if (previewingInvoice && previewingInvoice.id === id) {
+      setPreviewingInvoice(prev => prev ? { ...prev, status: newStatus } : null);
+    }
+
+    // 2. Broadcast to other open pages (invoices page, etc.)
+    try {
+      const bc = new BroadcastChannel('docspace_invoice_status');
+      bc.postMessage({ invoiceId: id, status: newStatus, workspaceId: activeWorkspace.id });
+      bc.close();
+    } catch {}
+
+    // 3. Background server write
     try {
       const res = await fetch('/api/crm/invoices', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id,
-          workspaceId: activeWorkspace.id,
-          status: newStatus
-        })
+        body: JSON.stringify({ id, workspaceId: activeWorkspace.id, status: newStatus })
       });
-      if (res.ok) {
-        setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv));
-        if (previewingInvoice && previewingInvoice.id === id) {
-          setPreviewingInvoice(prev => prev ? { ...prev, status: newStatus } : null);
-        }
+      if (!res.ok) {
+        console.error('Failed to update invoice status');
       }
     } catch (err) {
       console.error(err);
@@ -1226,66 +1268,75 @@ export default function ClientsPage() {
   // Quick toggle between Active and Inactive
   const handleToggleClientStatus = async (client: Client, newStatus: 'active' | 'inactive') => {
     if (!activeWorkspace) return;
+    const prevStatus = (client.status || 'active') as 'active' | 'inactive';
+
+    // 1. Instant optimistic update — 0ms
+    const optimisticClient = { ...client, status: newStatus };
+    setClients(prev => {
+      const updated = prev.map(c => c.id === client.id ? optimisticClient : c);
+      try { sessionStorage.setItem('cached_crm_clients', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    if (newStatus === 'inactive') {
+      setClientSection('inactive');
+      setSelectedClientId(client.id);
+    } else {
+      setClientSection('active');
+      setSelectedClientId(client.id);
+    }
+
+    // 2. Record in sheetConfig immediately
+    setSheetConfig(prev => {
+      if (!prev) return prev;
+      const nextChanges = { ...(prev.pendingClientChanges || {}) };
+      const existing = nextChanges[client.id];
+      const fieldDiffs = [
+        ...(existing?.fieldDiffs?.filter(d => d.field !== 'status') || []),
+        { field: 'status', label: 'Status', oldValue: prevStatus, newValue: newStatus }
+      ];
+      nextChanges[client.id] = {
+        clientId: client.id,
+        companyName: client.companyName,
+        changeType: 'updated',
+        details: `Status: ${prevStatus} → ${newStatus}`,
+        changedAt: new Date().toISOString(),
+        fieldDiffs
+      };
+      return {
+        ...prev,
+        pendingClientChanges: nextChanges,
+        syncedClientIds: (prev.syncedClientIds || []).filter(id => id !== client.id)
+      };
+    });
+
+    // 3. Broadcast to other open pages
+    try {
+      const bc = new BroadcastChannel('docspace_client_status');
+      bc.postMessage({ clientId: client.id, status: newStatus, workspaceId: activeWorkspace.id });
+      bc.close();
+    } catch {}
+
+    // 4. Background server write
     try {
       const res = await fetch('/api/crm/clients', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: client.id,
-          workspaceId: activeWorkspace.id,
-          status: newStatus
-        })
+        body: JSON.stringify({ id: client.id, workspaceId: activeWorkspace.id, status: newStatus })
       });
-      if (res.ok) {
-        const updated = await res.json();
-        setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
-        if (newStatus === 'inactive') {
-          setClientSection('inactive');
-          setSelectedClientId(client.id);
-        } else {
-          setClientSection('active');
-          setSelectedClientId(client.id);
-        }
-
-        // Optimistically record status change in sheetConfig immediately
-        const prevStatus = (client.status || 'active').toLowerCase();
-        setSheetConfig(prev => {
-          if (!prev) return prev;
-          const nextChanges = { ...(prev.pendingClientChanges || {}) };
-          const existing = nextChanges[client.id];
-
-          const fieldDiffs = [
-            ...(existing?.fieldDiffs?.filter(d => d.field !== 'status') || []),
-            {
-              field: 'status',
-              label: 'Status',
-              oldValue: prevStatus,
-              newValue: newStatus
-            }
-          ];
-
-          nextChanges[client.id] = {
-            clientId: client.id,
-            companyName: client.companyName,
-            changeType: 'updated',
-            details: `Status: ${prevStatus} → ${newStatus}`,
-            changedAt: new Date().toISOString(),
-            fieldDiffs
-          };
-
-          return {
-            ...prev,
-            pendingClientChanges: nextChanges,
-            syncedClientIds: (prev.syncedClientIds || []).filter(id => id !== client.id)
-          };
+      if (!res.ok) {
+        // Revert
+        setClients(prev => {
+          const reverted = prev.map(c => c.id === client.id ? { ...c, status: prevStatus } : c);
+          try { sessionStorage.setItem('cached_crm_clients', JSON.stringify(reverted)); } catch {}
+          return reverted;
         });
-
-        fetchSheetConfig();
-      } else {
         alert('Failed to update client status');
+      } else {
+        fetchSheetConfig();
       }
     } catch (err) {
       console.error(err);
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, status: prevStatus } : c));
       alert('Error updating client status');
     }
   };

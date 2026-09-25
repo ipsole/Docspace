@@ -116,12 +116,25 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     const wsId = activeWorkspace.id;
     const userId = user.id;
 
+    // Same-page: chats page dispatches CustomEvent when unread count changes
     const handleUnreadEvent = (e: any) => {
       if (!e.detail || !e.detail.workspaceId || e.detail.workspaceId === wsId) {
         setUnreadChatCount(Number(e.detail?.count) || 0);
       }
     };
     window.addEventListener('docspace_unread_chat_count', handleUnreadEvent);
+
+    // Cross-tab: chats page broadcasts count via BroadcastChannel
+    let bcUnread: BroadcastChannel | null = null;
+    try {
+      bcUnread = new BroadcastChannel('docspace_chat_unread');
+      bcUnread.onmessage = (event) => {
+        const { count, workspaceId } = event.data || {};
+        if (workspaceId && workspaceId !== wsId) return;
+        setUnreadChatCount(Number(count) || 0);
+        try { localStorage.setItem(`docspace_unread_chat_count_${wsId}`, String(count)); } catch {}
+      };
+    } catch {}
 
     // Initial cache hydrate
     try {
@@ -131,7 +144,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       }
     } catch {}
 
-    // Background check to calculate unread even if user is on other pages (Dashboard, Invoices, etc.)
+    // One-shot check on mount (covers case where user lands here without ever opening chats)
     const checkUnread = async () => {
       try {
         const res = await fetch(`/api/chat?workspaceId=${wsId}`);
@@ -148,17 +161,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           }
         }
         setUnreadChatCount(count);
-        try {
-          localStorage.setItem(`docspace_unread_chat_count_${wsId}`, String(count));
-        } catch {}
+        try { localStorage.setItem(`docspace_unread_chat_count_${wsId}`, String(count)); } catch {}
       } catch {}
     };
 
     checkUnread();
-    const interval = setInterval(checkUnread, 30000);
+    // Fallback poll every 3 minutes (safety net only — BroadcastChannel handles real-time)
+    const interval = setInterval(checkUnread, 180000);
     return () => {
       window.removeEventListener('docspace_unread_chat_count', handleUnreadEvent);
       clearInterval(interval);
+      try { bcUnread?.close(); } catch {}
     };
   }, [activeWorkspace?.id, user?.id]);
 

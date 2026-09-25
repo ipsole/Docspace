@@ -589,9 +589,16 @@ export default function ChatsPage() {
     const totalUnread = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
     try {
       localStorage.setItem(`docspace_unread_chat_count_${activeWorkspace.id}`, String(totalUnread));
+      // Same-page layout update
       window.dispatchEvent(new CustomEvent('docspace_unread_chat_count', {
         detail: { workspaceId: activeWorkspace.id, count: totalUnread }
       }));
+      // Cross-tab layout update (different browser tab where layout.tsx is mounted)
+      try {
+        const bc = new BroadcastChannel('docspace_chat_unread');
+        bc.postMessage({ workspaceId: activeWorkspace.id, count: totalUnread });
+        bc.close();
+      } catch {}
     } catch {}
   }, [conversations, activeWorkspace?.id]);
 

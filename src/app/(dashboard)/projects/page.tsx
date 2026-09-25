@@ -443,7 +443,6 @@ export default function ProjectsPage() {
         setShowAddProject(false);
         setEditingProject(null);
         setProjName(''); setProjDesc(''); setProjClientId(''); setProjBusinessType('B2B'); setProjStatus('planning');
-        fetchProjects();
       }
     } catch (err) {
       console.error(err);
@@ -490,10 +489,13 @@ export default function ProjectsPage() {
     }
 
     try {
-      await fetch(`/api/projects?id=${projId}&workspaceId=${activeWorkspace.id}`, {
+      const res = await fetch(`/api/projects?id=${projId}&workspaceId=${activeWorkspace.id}`, {
         method: 'DELETE'
       });
-      fetchProjects();
+      if (!res.ok) {
+        // Restore optimistically removed project on failure
+        fetchProjects();
+      }
     } catch (err) {
       console.error(err);
       fetchProjects();
