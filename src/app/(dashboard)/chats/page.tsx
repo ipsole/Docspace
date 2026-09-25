@@ -619,7 +619,24 @@ export default function ChatsPage() {
         const raw: ApiConversation[] = await chatsRes.json();
         const norms = raw.map(c => normalizeConversation(c, latestMap));
         const uniqueNorms = Array.from(new Map(norms.map(c => [c.id, c])).values());
-        setConversations(uniqueNorms);
+        setConversations(prev => {
+          if (prev.length === uniqueNorms.length) {
+            let unchanged = true;
+            for (let i = 0; i < prev.length; i++) {
+              if (
+                prev[i].id !== uniqueNorms[i].id ||
+                prev[i].lastMessage !== uniqueNorms[i].lastMessage ||
+                prev[i].lastMessageAt !== uniqueNorms[i].lastMessageAt ||
+                prev[i].name !== uniqueNorms[i].name
+              ) {
+                unchanged = false;
+                break;
+              }
+            }
+            if (unchanged) return prev;
+          }
+          return uniqueNorms;
+        });
         try {
           setStoredItem('cached_conversations', JSON.stringify(uniqueNorms));
         } catch {}
@@ -1423,18 +1440,20 @@ export default function ChatsPage() {
     );
   }, [crmEvents, activeLinkedClient]);
 
-  const fetchMessages = useCallback(async (chatId: string, showLoader = false) => {
-    // If we have cached messages in storage, hydrate them immediately
-    const cached = getStoredItem(`cached_msgs_${chatId}`);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
-          messagesRef.current = parsed;
-          showLoader = false; // Do not show blocking spinner when cached msgs exist
-        }
-      } catch {}
+  const fetchMessages = useCallback(async (chatId: string, showLoader = false, isSilentPoll = false) => {
+    // If not a silent poll and we have cached messages in storage, hydrate them immediately
+    if (!isSilentPoll) {
+      const cached = getStoredItem(`cached_msgs_${chatId}`);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages(parsed);
+            messagesRef.current = parsed;
+            showLoader = false; // Do not show blocking spinner when cached msgs exist
+          }
+        } catch {}
+      }
     }
 
     if (showLoader) setLoadingMsgs(true);
@@ -1442,13 +1461,70 @@ export default function ChatsPage() {
       const res = await fetch(`/api/chat/message?chatId=${chatId}`);
       if (res.ok) {
         const raw: ApiMessage[] = await res.json();
-        const norms = raw.map(normalizeMessage);
-        setMessages(norms);
-        messagesRef.current = norms;
+        const serverMsgs = raw.map(m => normalizeMessage(m));
+
+        setMessages(prev => {
+          // In silent poll, check if nothing changed to avoid re-rendering
+          const prevNonTemp = prev.filter(m => !m.id.startsWith('temp_'));
+          if (isSilentPoll && prevNonTemp.length === serverMsgs.length && serverMsgs.length > 0) {
+            const lastPrev = prevNonTemp[prevNonTemp.length - 1];
+            const lastServer = serverMsgs[serverMsgs.length - 1];
+            if (
+              lastPrev.id === lastServer.id &&
+              lastPrev.content === lastServer.content &&
+              lastPrev.isEdited === lastServer.isEdited &&
+              lastPrev.pinned === lastServer.pinned
+            ) {
+              return prev;
+            }
+          }
+
+          // Keep pending optimistic messages that haven't reconciled yet
+          const pendingTemps = prev.filter(m => m.id.startsWith('temp_') && !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId));
+          const combined = [...serverMsgs, ...pendingTemps];
+          messagesRef.current = combined;
+          return combined;
+        });
+
         try {
-          setStoredItem(`cached_msgs_${chatId}`, JSON.stringify(norms));
+          setStoredItem(`cached_msgs_${chatId}`, JSON.stringify(serverMsgs));
         } catch {}
-        setTimeout(() => scrollToBottom(), 40);
+
+        if (!isSilentPoll) {
+          setTimeout(() => scrollToBottom(), 40);
+        } else {
+          // If in silent poll new messages arrived, scroll smoothly
+          const prevLen = messagesRef.current.length;
+          if (serverMsgs.length > prevLen) {
+            setTimeout(() => scrollToBottom(), 50);
+          }
+        }
+
+        // Update lastMessage on conversation in sidebar if changed
+        if (serverMsgs.length > 0) {
+          const last = serverMsgs[serverMsgs.length - 1];
+          setConversations(convList => {
+            let changed = false;
+            const updated = convList.map(c => {
+              if (c.id === chatId && (c.lastMessage !== last.content || c.lastMessageAt !== last.createdAt)) {
+                changed = true;
+                return {
+                  ...c,
+                  lastMessage: last.content,
+                  lastMessageAt: last.createdAt
+                };
+              }
+              return c;
+            });
+            if (changed) {
+              try {
+                setStoredItem('cached_conversations', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            }
+            return convList;
+          });
+        }
       }
     } catch { /* ignore */ }
     finally { if (showLoader) setLoadingMsgs(false); }
@@ -1690,6 +1766,67 @@ export default function ChatsPage() {
       messagesRef.current = [];
     }
   }, [activeConv?.id, fetchMessages]);
+
+  // Continuous real-time synchronization loop for active conversation (0ms-1s real-time feel)
+  useEffect(() => {
+    if (!activeConv?.id) return;
+    const currentChatId = activeConv.id;
+
+    let pollInterval = 1200; // 1.2 seconds when tab is active
+    let timer: NodeJS.Timeout;
+
+    const tick = () => {
+      if (!document.hidden && activeConvIdRef.current === currentChatId) {
+        fetchMessages(currentChatId, false, true);
+      }
+    };
+
+    const startTimer = () => {
+      clearInterval(timer);
+      timer = setInterval(tick, pollInterval);
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        pollInterval = 6000;
+      } else {
+        pollInterval = 1200;
+        if (activeConvIdRef.current === currentChatId) {
+          fetchMessages(currentChatId, false, true);
+        }
+      }
+      startTimer();
+    };
+
+    const handleFocus = () => {
+      if (activeConvIdRef.current === currentChatId) {
+        fetchMessages(currentChatId, false, true);
+      }
+    };
+
+    startTimer();
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [activeConv?.id, fetchMessages]);
+
+  // Periodic background revalidation for conversations list (sidebar)
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchConversations();
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [activeWorkspace?.id, fetchConversations]);
 
   // Persist input draft per active conversation
   useEffect(() => {
