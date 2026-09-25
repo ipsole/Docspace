@@ -313,6 +313,10 @@ const DEFAULT_SETTINGS: Settings = {
 
 // USER DATABASE OPERATIONS
 export async function readUser(id: string): Promise<User | null> {
+  if (isFirestoreEnabled()) {
+    const user = await firestoreGet<User>('users', id);
+    if (user) return user;
+  }
   const content = await safeReadFile(path.join(STORAGE_ROOT, 'users', `${id}.json`));
   if (!content) return null;
   return JSON.parse(content) as User;
@@ -518,13 +522,16 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function listConversations(): Promise<Conversation[]> {
   if (isFirestoreEnabled()) {
     const rawConvos = await firestoreList<StoredConversation>('conversations');
-    const convos: Conversation[] = [];
-    for (const raw of rawConvos) {
-      try {
-        const normalized = await normalizeConversationRecord(raw);
-        convos.push(normalized);
-      } catch {}
-    }
+    const normalized = await Promise.all(
+      rawConvos.map(async raw => {
+        try {
+          return await normalizeConversationRecord(raw);
+        } catch {
+          return null;
+        }
+      })
+    );
+    const convos = normalized.filter(Boolean) as Conversation[];
     return convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 

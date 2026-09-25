@@ -299,12 +299,11 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
       : Array.isArray(raw?.items)
       ? raw.items
       : [];
-    const result: WorkspaceMemberWithProfile[] = [];
-
-    for (const m of members) {
-      const u = await readUser(m.userId);
-      if (u) {
-        result.push({
+    const memberProfiles = await Promise.all(
+      members.map(async m => {
+        const u = await readUser(m.userId);
+        if (!u) return null;
+        return {
           ...m,
           user: {
             id: u.id,
@@ -314,10 +313,10 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
             avatar: u.avatar,
             status: u.status
           }
-        });
-      }
-    }
-    return result;
+        };
+      })
+    );
+    return memberProfiles.filter(Boolean) as WorkspaceMemberWithProfile[];
   } catch {
     return [];
   }

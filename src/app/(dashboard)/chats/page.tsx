@@ -573,9 +573,13 @@ export default function ChatsPage() {
   const fetchConversations = useCallback(async () => {
     if (!activeWorkspace) return;
     try {
-      const res = await fetch(`/api/workspaces/members?workspaceId=${activeWorkspace.id}`);
-      if (res.ok) {
-        const list: any[] = await res.json();
+      const [membersRes, chatsRes] = await Promise.all([
+        fetch(`/api/workspaces/members?workspaceId=${activeWorkspace.id}`),
+        fetch(`/api/chat?workspaceId=${activeWorkspace.id}`)
+      ]);
+
+      if (membersRes.ok) {
+        const list: any[] = await membersRes.json();
         const mapping: Record<string, ApiUser> = {};
         const userMapping: Record<string, string> = {};
         list.forEach((item: any) => {
@@ -588,8 +592,6 @@ export default function ChatsPage() {
         setUsersById(mapping);
         setUserIdByUsername(userMapping);
       }
-
-      const chatsRes = await fetch(`/api/chat?workspaceId=${activeWorkspace.id}`);
       if (chatsRes.ok) {
         const raw: ApiConversation[] = await chatsRes.json();
         const norms = raw.map(normalizeConversation);
