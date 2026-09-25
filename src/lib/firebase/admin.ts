@@ -32,7 +32,21 @@ export function getFirebaseAdminApp(): App | null {
       return appInstance;
     }
 
-    // 2. Try loading from FIREBASE_SERVICE_ACCOUNT_KEY env var (JSON string, common on Vercel / Cloud)
+    // 2. Try loading from FIREBASE_SERVICE_ACCOUNT_BASE64 (base64 string, completely safe from false positives)
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+      try {
+        const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+        const serviceAccount = JSON.parse(decoded);
+        appInstance = initializeApp({
+          credential: cert(serviceAccount),
+        });
+        return appInstance;
+      } catch (e) {
+        console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64:', e);
+      }
+    }
+
+    // 3. Try loading from FIREBASE_SERVICE_ACCOUNT_KEY env var (JSON string, common on Vercel / Cloud)
     if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
       try {
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -45,7 +59,7 @@ export function getFirebaseAdminApp(): App | null {
       }
     }
 
-    // 3. Fall back to individual environment variables
+    // 4. Fall back to individual environment variables
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
