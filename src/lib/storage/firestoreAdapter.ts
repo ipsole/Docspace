@@ -121,8 +121,17 @@ export async function firestoreSet(collectionName: string, docId: string, data: 
 
   // Update in-memory document cache immediately
   docCache.set(cacheKey, { data, cachedAt: Date.now() });
-  // Invalidate collection cache so fresh list will be generated
-  collectionCache.delete(collectionName);
+
+  // Update collection cache in-place for instant post-update reads
+  const cachedCol = collectionCache.get(collectionName);
+  if (cachedCol) {
+    const idx = cachedCol.data.findIndex(entry => entry.id === docId);
+    if (idx >= 0) {
+      cachedCol.data[idx] = { id: docId, data };
+    } else {
+      cachedCol.data.push({ id: docId, data });
+    }
+  }
 
   try {
     // Recursively clean undefined values which Firestore rejects
@@ -141,7 +150,12 @@ export async function firestoreSet(collectionName: string, docId: string, data: 
 export async function firestoreDelete(collectionName: string, docId: string): Promise<void> {
   const cacheKey = `${collectionName}/${docId}`;
   docCache.delete(cacheKey);
-  collectionCache.delete(collectionName);
+
+  // Remove from collection cache in-place
+  const cachedCol = collectionCache.get(collectionName);
+  if (cachedCol) {
+    cachedCol.data = cachedCol.data.filter(entry => entry.id !== docId);
+  }
 
   const db = getFirestoreDb();
   if (!db) return;

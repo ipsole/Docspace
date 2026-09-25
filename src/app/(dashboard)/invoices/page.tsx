@@ -1768,23 +1768,20 @@ export default function InvoicesPage() {
           }));
           const activeTabForDoc = docType === 'proforma' ? 'proforma' : docType === 'receipt' ? 'receipt' : 'invoice';
           setActiveDocTypeTab(activeTabForDoc);
-          // Refresh invoice list
-          await fetchInvoices();
-          // Automatically reopen updated invoice in preview modal so user immediately sees the unsynced alert
-          try {
-            const freshRes = await fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`);
-            if (freshRes.ok) {
-              const freshInvoices: Invoice[] = await freshRes.json();
-              const updatedInv = freshInvoices.find(i => i.id === editedId);
-              if (updatedInv) {
-                const targetClient = clients.find(c => c.id === updatedInv.clientId);
-                setSelectedInvoice({
-                  ...updatedInv,
-                  clientName: updatedInv.clientName || targetClient?.companyName || clientName || 'Selected Client'
-                });
-              }
+          // Instantly update invoices list and preview modal
+          const freshRes = await fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`);
+          if (freshRes.ok) {
+            const freshInvoices: Invoice[] = await freshRes.json();
+            setInvoices(freshInvoices);
+            const updatedInv = freshInvoices.find(i => i.id === editedId);
+            if (updatedInv) {
+              const targetClient = clients.find(c => c.id === updatedInv.clientId);
+              setSelectedInvoice({
+                ...updatedInv,
+                clientName: updatedInv.clientName || targetClient?.companyName || clientName || 'Selected Client'
+              });
             }
-          } catch {}
+          }
         } else {
           const data = await res.json();
           alert(data.error || 'Failed to update invoice');
@@ -1826,9 +1823,22 @@ export default function InvoicesPage() {
     }
   };
 
-  // Change status of existing invoice
+  // Change status of existing invoice with instant optimistic feedback
   const handleUpdateStatus = async (id: string, newStatus: Invoice['status']) => {
     if (!activeWorkspace) return;
+    const prevInvoices = invoices;
+    const prevSelected = selectedInvoice;
+
+    // Instant optimistic update
+    setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv));
+    if (selectedInvoice && selectedInvoice.id === id) {
+      setSelectedInvoice(prev => prev ? { ...prev, status: newStatus } : null);
+    }
+    setSheetConfig(prev => ({
+      ...prev,
+      syncedInvoiceIds: (prev.syncedInvoiceIds || []).filter(invId => invId !== id)
+    }));
+
     try {
       const res = await fetch('/api/crm/invoices', {
         method: 'PATCH',
@@ -1839,19 +1849,15 @@ export default function InvoicesPage() {
           status: newStatus
         })
       });
-      if (res.ok) {
-        setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: newStatus } : inv));
-        if (selectedInvoice && selectedInvoice.id === id) {
-          setSelectedInvoice(prev => prev ? { ...prev, status: newStatus } : null);
-        }
-        // Immediately unmark invoice from synced list so users get alerted that status is not synced
-        setSheetConfig(prev => ({
-          ...prev,
-          syncedInvoiceIds: (prev.syncedInvoiceIds || []).filter(invId => invId !== id)
-        }));
+      if (!res.ok) {
+        // Revert on failure
+        setInvoices(prevInvoices);
+        setSelectedInvoice(prevSelected);
       }
     } catch (err) {
       console.error(err);
+      setInvoices(prevInvoices);
+      setSelectedInvoice(prevSelected);
     }
   };
 

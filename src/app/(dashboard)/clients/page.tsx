@@ -1352,6 +1352,9 @@ export default function ClientsPage() {
   const handleSaveNotes = async () => {
     if (!activeClient || !activeWorkspace) return;
     setSavingNotes(true);
+    // Optimistic local update
+    const prevNotes = activeClient.notes;
+    setClients(prev => prev.map(c => c.id === activeClient.id ? { ...c, notes: notesText } : c));
     try {
       const res = await fetch('/api/crm/clients', {
         method: 'PATCH',
@@ -1366,9 +1369,12 @@ export default function ClientsPage() {
         const updated = await res.json();
         setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
         fetchSheetConfig();
+      } else {
+        setClients(prev => prev.map(c => c.id === activeClient.id ? { ...c, notes: prevNotes } : c));
       }
     } catch (err) {
       console.error(err);
+      setClients(prev => prev.map(c => c.id === activeClient.id ? { ...c, notes: prevNotes } : c));
     } finally {
       setSavingNotes(false);
     }

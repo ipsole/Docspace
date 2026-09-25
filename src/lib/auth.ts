@@ -75,6 +75,9 @@ export async function startSession(
   return session;
 }
 
+const AUTH_CACHE_TTL_MS = 60 * 1000;
+const userSessionCache = new Map<string, { user: User; expiresAt: number }>();
+
 /**
  * Destroys the session and clears the cookie.
  */
@@ -82,6 +85,7 @@ export async function endSession(): Promise<void> {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(COOKIE_NAME)?.value;
   if (sessionId) {
+    userSessionCache.delete(sessionId);
     await deleteSession(sessionId);
   }
   cookieStore.delete(COOKIE_NAME);
@@ -102,8 +106,21 @@ export async function getCurrentUser(request?: NextRequest): Promise<User | null
 
   if (!sessionId) return null;
 
-  const session = await readSession(sessionId);
-  if (!session) return null;
+  const now = Date.now();
+  const cached = userSessionCache.get(sessionId);
+  if (cached && cached.expiresAt > now) {
+    return cached.user;
+  }
 
-  return await readUser(session.userId);
+  const session = await readSession(sessionId);
+  if (!session) {
+    userSessionCache.delete(sessionId);
+    return null;
+  }
+
+  const user = await readUser(session.userId);
+  if (user) {
+    userSessionCache.set(sessionId, { user, expiresAt: now + AUTH_CACHE_TTL_MS });
+  }
+  return user;
 }
