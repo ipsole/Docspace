@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { listPayments, createPayment } from '@/lib/services/billing';
-import { listWorkspaceMembers } from '@/lib/services/workspace';
+import { listWorkspaceMembers, checkWorkspaceAccess } from '@/lib/services/workspace';
 
 // Helper to check user membership
-async function isUserMember(workspaceId: string, userId: string): Promise<boolean> {
-  const members = await listWorkspaceMembers(workspaceId);
-  return members.some(m => m.userId === userId);
+async function isUserMember(workspaceId: string, userId: string, role?: string): Promise<boolean> {
+  return checkWorkspaceAccess(workspaceId, { id: userId, role });
 }
 
 // GET: Retrieve all payments in a workspace
@@ -24,7 +23,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
 
-    if (!(await isUserMember(workspaceId, user.id))) {
+    if (!(await isUserMember(workspaceId, user.id, user.role))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -51,7 +50,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
 
-    if (!(await isUserMember(workspaceId, user.id))) {
+    if (!(await isUserMember(workspaceId, user.id, user.role))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

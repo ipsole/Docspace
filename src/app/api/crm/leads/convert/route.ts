@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getLead, deleteLead, createClient, getClient } from '@/lib/services/crm';
-import { listWorkspaceMembers } from '@/lib/services/workspace';
+import { listWorkspaceMembers, checkWorkspaceAccess } from '@/lib/services/workspace';
 
 // Helper to check user membership
-async function isUserMember(workspaceId: string, userId: string): Promise<boolean> {
-  const members = await listWorkspaceMembers(workspaceId);
-  return members.some(m => m.userId === userId);
+async function isUserMember(workspaceId: string, userId: string, role?: string): Promise<boolean> {
+  return checkWorkspaceAccess(workspaceId, { id: userId, role });
 }
 
 // POST: Convert a lead to a full Client and remove it from Leads pipeline
@@ -24,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'leadId and workspaceId are required' }, { status: 400 });
     }
 
-    if (!(await isUserMember(workspaceId, user.id))) {
+    if (!(await isUserMember(workspaceId, user.id, user.role))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -123,6 +123,10 @@ export async function safeWriteFile(filePath: string, content: string): Promise<
     } catch (err) {
       console.error(`Firestore sync write error [${parsed.collection}/${parsed.docId}]:`, err);
     }
+    // On Vercel cloud serverless with read-only filesystem, avoid throwing EROFS on local disk writes
+    if (process.env.VERCEL) {
+      return;
+    }
   }
 
   try {
@@ -193,6 +197,9 @@ export async function safeDeleteFile(filePath: string): Promise<void> {
       await firestoreDelete(parsed.collection, parsed.docId);
     } catch (err) {
       console.error(`Firestore sync delete error [${parsed.collection}/${parsed.docId}]:`, err);
+    }
+    if (process.env.VERCEL) {
+      return;
     }
   }
 

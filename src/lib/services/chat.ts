@@ -80,11 +80,11 @@ export async function createChannel(
   const now = new Date().toISOString();
 
   // Verify membership
-  const workspaceMembers = await listWorkspaceMembers(workspaceId);
-  const isMember = workspaceMembers.some(m => m.userId === creatorId);
-  if (!isMember) {
+  const hasAccess = await checkWorkspaceAccess(workspaceId, { id: creatorId });
+  if (!hasAccess) {
     throw new Error('Forbidden: Creator is not a member of this workspace');
   }
+  const workspaceMembers = await listWorkspaceMembers(workspaceId);
 
   // A channel is visible to all, but initially has the creator as participant
   // (We can auto-join members or just keep participants list for who has open/active tabs)
@@ -128,11 +128,11 @@ export async function createGroup(
   const now = new Date().toISOString();
 
   // Verify membership
-  const workspaceMembers = await listWorkspaceMembers(workspaceId);
-  const isMember = workspaceMembers.some(m => m.userId === creatorId);
-  if (!isMember) {
+  const hasAccess = await checkWorkspaceAccess(workspaceId, { id: creatorId });
+  if (!hasAccess) {
     throw new Error('Forbidden: Creator is not a member of this workspace');
   }
+  const workspaceMembers = await listWorkspaceMembers(workspaceId);
 
   // Ensure participants are members of workspace
   const validInvitedIds = participants.filter(pId => workspaceMembers.some(m => m.userId === pId));
@@ -237,8 +237,8 @@ export async function sendMessage(
   await ensureDirs();
 
   // Verify sender membership in workspace
-  const workspaceMembers = await listWorkspaceMembers(workspaceId);
-  if (!workspaceMembers.some(m => m.userId === senderId)) {
+  const hasAccess = await checkWorkspaceAccess(workspaceId, { id: senderId });
+  if (!hasAccess) {
     throw new Error('Forbidden: Sender is not a member of this workspace');
   }
 

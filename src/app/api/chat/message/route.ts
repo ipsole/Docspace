@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { loadConversation } from '@/lib/storage/storage';
 import { loadMessages, sendMessage, editMessage, deleteMessage, toggleReaction, pinMessage } from '@/lib/services/chat';
-import { listWorkspaceMembers, getWorkspace } from '@/lib/services/workspace';
+import { listWorkspaceMembers, getWorkspace, checkWorkspaceAccess } from '@/lib/services/workspace';
 
 // Helper to check user access to a conversation
 async function verifyChatAccess(chatId: string, userId: string, role?: string): Promise<{ authorized: boolean; convo?: any; error?: string }> {
@@ -16,16 +16,14 @@ async function verifyChatAccess(chatId: string, userId: string, role?: string): 
     return { authorized: true, convo };
   }
 
-  // Scoped to workspace: check if user is a member
-  const workspaceMembers = await listWorkspaceMembers(convo.workspaceId);
-  const isWorkspaceMember = workspaceMembers.some(m => m.userId === userId);
-
-  if (!isWorkspaceMember) {
+  // Scoped to workspace: check if user has access to workspace
+  const hasAccess = await checkWorkspaceAccess(convo.workspaceId, { id: userId, role });
+  if (!hasAccess) {
     return { authorized: false, error: 'Forbidden: You are not a member of this workspace' };
   }
 
-  // Channels are open to all workspace members. DMs require participant checks.
-  if (!convo.isChannel && !convo.participants.includes(userId)) {
+  // Channels, groups or client chats are open to all workspace members. Private 1-on-1 DMs require participant checks.
+  if (!convo.isChannel && !convo.isGroup && !convo.clientId && !convo.participants.includes(userId)) {
     return { authorized: false, error: 'Forbidden: You are not a participant in this DM' };
   }
 
@@ -47,7 +45,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing chatId' }, { status: 400 });
     }
 
-    const access = await verifyChatAccess(chatId, user.id);
+    const access = await verifyChatAccess(chatId, user.id, user.role);
     if (!access.authorized) {
       return NextResponse.json({ error: access.error }, { status: access.error?.includes('not found') ? 404 : 403 });
     }
@@ -75,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing chatId' }, { status: 400 });
     }
 
-    const access = await verifyChatAccess(chatId, user.id);
+    const access = await verifyChatAccess(chatId, user.id, user.role);
     if (!access.authorized) {
       return NextResponse.json({ error: access.error }, { status: access.error?.includes('not found') ? 404 : 403 });
     }
@@ -112,7 +110,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
     }
 
-    const access = await verifyChatAccess(chatId, user.id);
+    const access = await verifyChatAccess(chatId, user.id, user.role);
     if (!access.authorized) {
       return NextResponse.json({ error: access.error }, { status: access.error?.includes('not found') ? 404 : 403 });
     }

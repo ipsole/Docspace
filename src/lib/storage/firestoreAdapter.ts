@@ -125,7 +125,9 @@ export async function firestoreSet(collectionName: string, docId: string, data: 
   collectionCache.delete(collectionName);
 
   try {
-    const docData = Array.isArray(data) ? { _isArrayWrapper: true, items: data } : data;
+    // Recursively clean undefined values which Firestore rejects
+    const cleaned = data === undefined ? null : JSON.parse(JSON.stringify(data));
+    const docData = Array.isArray(cleaned) ? { _isArrayWrapper: true, items: cleaned } : cleaned;
     await db.collection(collectionName).doc(docId).set(docData, { merge: true });
   } catch (err) {
     console.error(`Firestore set error [${collectionName}/${docId}]:`, err);
