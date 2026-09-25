@@ -275,6 +275,39 @@ async function scanDomain(domain: DomainConfig) {
     isWritable = false;
   }
 
+  // When deployed to Cloud (Firestore / R2), enrich from Firestore if local disk is ephemeral or empty
+  if (isFirestoreEnabled()) {
+    try {
+      const { getFirestoreDb } = await import('@/lib/firebase/admin');
+      const db = getFirestoreDb();
+      if (db) {
+        const snap = await db.collection(domain.dirName).get();
+        if (snap.size > 0 || fileCount === 0) {
+          exists = true;
+          isWritable = true;
+          if (snap.size > fileCount) {
+            fileCount = snap.size;
+            let cloudBytes = 0;
+            snap.docs.slice(0, 10).forEach(doc => {
+              const str = JSON.stringify(doc.data() || {});
+              const sz = Buffer.byteLength(str, 'utf8');
+              cloudBytes += sz;
+              recentFiles.push({
+                name: `${doc.id}.json`,
+                size: sz,
+                modifiedAt: doc.updateTime ? doc.updateTime.toDate().toISOString() : new Date().toISOString(),
+              });
+            });
+            sizeBytes = Math.max(sizeBytes, cloudBytes || snap.size * 1024);
+            if (!lastModified) lastModified = new Date().toISOString();
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Error querying Firestore for ${domain.dirName}:`, e);
+    }
+  }
+
   return {
     ...domain,
     absolutePath,
