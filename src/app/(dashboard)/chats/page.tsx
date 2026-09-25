@@ -492,6 +492,9 @@ export default function ChatsPage() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const activeConvIdRef = useRef<string | null>(null);
+  const fetchSeqRef = useRef<number>(0);
+  const latestAppliedSeqRef = useRef<number>(0);
+  const fetchInFlightRef = useRef<string | null>(null);
 
   const isNearBottom = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -620,14 +623,33 @@ export default function ChatsPage() {
         const norms = raw.map(c => normalizeConversation(c, latestMap));
         const uniqueNorms = Array.from(new Map(norms.map(c => [c.id, c])).values());
         setConversations(prev => {
-          if (prev.length === uniqueNorms.length) {
+          const prevMap = new Map(prev.map(c => [c.id, c]));
+          const mergedNorms = uniqueNorms.map(fresh => {
+            const existing = prevMap.get(fresh.id);
+            if (!existing) return fresh;
+            const existingTime = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
+            const freshTime = fresh.lastMessageAt ? new Date(fresh.lastMessageAt).getTime() : 0;
+            // Never overwrite a newer or optimistic lastMessage with older conversation summary
+            if (existingTime > freshTime && existing.lastMessage) {
+              return {
+                ...fresh,
+                lastMessage: existing.lastMessage,
+                lastMessageAt: existing.lastMessageAt
+              };
+            }
+            return fresh;
+          });
+
+          if (prev.length === mergedNorms.length) {
             let unchanged = true;
             for (let i = 0; i < prev.length; i++) {
               if (
-                prev[i].id !== uniqueNorms[i].id ||
-                prev[i].lastMessage !== uniqueNorms[i].lastMessage ||
-                prev[i].lastMessageAt !== uniqueNorms[i].lastMessageAt ||
-                prev[i].name !== uniqueNorms[i].name
+                prev[i].id !== mergedNorms[i].id ||
+                prev[i].lastMessage !== mergedNorms[i].lastMessage ||
+                prev[i].lastMessageAt !== mergedNorms[i].lastMessageAt ||
+                prev[i].name !== mergedNorms[i].name ||
+                prev[i].avatar !== mergedNorms[i].avatar ||
+                prev[i].unreadCount !== mergedNorms[i].unreadCount
               ) {
                 unchanged = false;
                 break;
@@ -635,17 +657,27 @@ export default function ChatsPage() {
             }
             if (unchanged) return prev;
           }
-          return uniqueNorms;
+          return mergedNorms;
         });
         try {
           setStoredItem('cached_conversations', JSON.stringify(uniqueNorms));
         } catch {}
 
-        // Restore activeConv if not set or update it with fresh details
+        // Restore activeConv if not set or update it with fresh details without reference thrashing
         const savedChatId = getStoredItem('last_active_chat_id');
         setActiveConv(prev => {
           if (prev) {
-            return uniqueNorms.find(c => c.id === prev.id) || prev;
+            const match = uniqueNorms.find(c => c.id === prev.id);
+            if (!match) return prev;
+            if (
+              match.name !== prev.name ||
+              match.avatar !== prev.avatar ||
+              match.description !== prev.description ||
+              match.clientId !== prev.clientId
+            ) {
+              return { ...prev, name: match.name, avatar: match.avatar, description: match.description, clientId: match.clientId };
+            }
+            return prev;
           }
           if (savedChatId) {
             return uniqueNorms.find(c => c.id === savedChatId) || uniqueNorms[0] || null;
@@ -671,7 +703,7 @@ export default function ChatsPage() {
           const savedId = getStoredItem('last_active_chat_id');
           const target = savedId ? unique.find(c => c.id === savedId) || unique[0] : unique[0];
           if (target) {
-            setActiveConv(target);
+            setActiveConv(prev => prev || target);
             const cachedMsgs = getStoredItem(`cached_msgs_${target.id}`);
             if (cachedMsgs) {
               const msgs = JSON.parse(cachedMsgs);
@@ -1456,14 +1488,30 @@ export default function ChatsPage() {
       }
     }
 
+    // Skip overlapping silent polls for the same chat if a request is already in flight
+    if (isSilentPoll && fetchInFlightRef.current === chatId) {
+      return;
+    }
+
+    const thisSeq = ++fetchSeqRef.current;
+    fetchInFlightRef.current = chatId;
+
     if (showLoader) setLoadingMsgs(true);
     try {
       const res = await fetch(`/api/chat/message?chatId=${chatId}`);
       if (res.ok) {
+        // Discard if user already navigated to another chat or if an older request resolved late
+        if (activeConvIdRef.current !== chatId) return;
+        if (thisSeq < latestAppliedSeqRef.current) return;
+        latestAppliedSeqRef.current = thisSeq;
+
         const raw: ApiMessage[] = await res.json();
         const serverMsgs = raw.map(m => normalizeMessage(m));
 
         setMessages(prev => {
+          // Double check active chat hasn't switched
+          if (activeConvIdRef.current !== chatId) return prev;
+
           // In silent poll, check if nothing changed to avoid re-rendering
           const prevNonTemp = prev.filter(m => !m.id.startsWith('temp_'));
           if (isSilentPoll && prevNonTemp.length === serverMsgs.length && serverMsgs.length > 0) {
@@ -1500,19 +1548,23 @@ export default function ChatsPage() {
           }
         }
 
-        // Update lastMessage on conversation in sidebar if changed
+        // Update lastMessage on conversation in sidebar if changed and not stale
         if (serverMsgs.length > 0) {
           const last = serverMsgs[serverMsgs.length - 1];
           setConversations(convList => {
             let changed = false;
             const updated = convList.map(c => {
-              if (c.id === chatId && (c.lastMessage !== last.content || c.lastMessageAt !== last.createdAt)) {
-                changed = true;
-                return {
-                  ...c,
-                  lastMessage: last.content,
-                  lastMessageAt: last.createdAt
-                };
+              if (c.id === chatId) {
+                const lastTime = new Date(last.createdAt).getTime();
+                const existingTime = c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0;
+                if (lastTime >= existingTime && (c.lastMessage !== last.content || c.lastMessageAt !== last.createdAt)) {
+                  changed = true;
+                  return {
+                    ...c,
+                    lastMessage: last.content,
+                    lastMessageAt: last.createdAt
+                  };
+                }
               }
               return c;
             });
@@ -1527,7 +1579,12 @@ export default function ChatsPage() {
         }
       }
     } catch { /* ignore */ }
-    finally { if (showLoader) setLoadingMsgs(false); }
+    finally {
+      if (fetchInFlightRef.current === chatId) {
+        fetchInFlightRef.current = null;
+      }
+      if (showLoader) setLoadingMsgs(false);
+    }
   }, [normalizeMessage, scrollToBottom]);
 
   // Request desktop notification permission on mount
@@ -1751,14 +1808,16 @@ export default function ChatsPage() {
   useEffect(() => {
     if (activeConv) {
       activeConvIdRef.current = activeConv.id;
+      latestAppliedSeqRef.current = ++fetchSeqRef.current;
+      fetchInFlightRef.current = null;
       if (typeof window !== 'undefined') {
         try {
-          sessionStorage.setItem('last_active_chat_id', activeConv.id);
+          setStoredItem('last_active_chat_id', activeConv.id);
           const savedDraft = sessionStorage.getItem(`chat_draft_${activeConv.id}`);
           setInput(savedDraft || '');
         } catch {}
       }
-      const hasCached = typeof window !== 'undefined' && !!sessionStorage.getItem(`cached_msgs_${activeConv.id}`);
+      const hasCached = typeof window !== 'undefined' && !!getStoredItem(`cached_msgs_${activeConv.id}`);
       fetchMessages(activeConv.id, !hasCached);
     } else {
       activeConvIdRef.current = null;
@@ -1767,12 +1826,12 @@ export default function ChatsPage() {
     }
   }, [activeConv?.id, fetchMessages]);
 
-  // Continuous real-time synchronization loop for active conversation (sub-second live updates)
+  // Continuous real-time synchronization loop for active conversation (responsive live updates)
   useEffect(() => {
     if (!activeConv?.id) return;
     const currentChatId = activeConv.id;
 
-    let pollInterval = 900; // 900ms when tab is active
+    let pollInterval = 1500; // Snappy 1.5s live polling when tab is active
     let timer: NodeJS.Timeout;
 
     const tick = () => {
@@ -1788,9 +1847,9 @@ export default function ChatsPage() {
 
     const handleVisibility = () => {
       if (document.hidden) {
-        pollInterval = 4000;
+        pollInterval = 5000;
       } else {
-        pollInterval = 900;
+        pollInterval = 1500;
         if (activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
@@ -1823,7 +1882,7 @@ export default function ChatsPage() {
       if (!document.hidden) {
         fetchConversations();
       }
-    }, 3500);
+    }, 8000);
 
     return () => clearInterval(interval);
   }, [activeWorkspace?.id, fetchConversations]);
