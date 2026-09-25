@@ -1,0 +1,204 @@
+ 'use client';
+
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { Workspace, WorkspaceMember, TabAccessLevel } from '@/lib/storage/models';
+
+interface WorkspaceContextType {
+  workspaces: Workspace[];
+  activeWorkspace: Workspace | null;
+  loading: boolean;
+  currentMember: WorkspaceMember | null;
+  getTabAccess: (tabKey: string) => TabAccessLevel;
+  refreshCurrentMember: () => Promise<void>;
+  setActiveWorkspace: (workspace: Workspace | null) => void;
+  fetchWorkspaces: () => Promise<void>;
+  createWorkspace: (name: string) => Promise<Workspace>;
+}
+
+const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+
+export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null);
+  const [currentMember, setCurrentMember] = useState<WorkspaceMember | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchCurrentMember = async (wsId?: string) => {
+    const targetWsId = wsId || activeWorkspace?.id;
+    if (!targetWsId || !user) {
+      setCurrentMember(null);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/workspaces/members?workspaceId=${targetWsId}`);
+      if (res.ok) {
+        const members: WorkspaceMember[] = await res.json();
+        const me = members.find(m => m.userId === user.id);
+        if (me) {
+          setCurrentMember(me);
+          return;
+        }
+      }
+      if (activeWorkspace && activeWorkspace.ownerId === user.id) {
+        setCurrentMember({
+          workspaceId: targetWsId,
+          userId: user.id,
+          role: 'owner',
+          joinedAt: activeWorkspace.createdAt,
+        });
+      } else {
+        setCurrentMember(null);
+      }
+    } catch {
+      if (activeWorkspace && activeWorkspace.ownerId === user.id) {
+        setCurrentMember({
+          workspaceId: targetWsId,
+          userId: user.id,
+          role: 'owner',
+          joinedAt: activeWorkspace.createdAt,
+        });
+      }
+    }
+  };
+
+  const refreshCurrentMember = async () => {
+    await fetchCurrentMember();
+  };
+
+  useEffect(() => {
+    if (activeWorkspace && user) {
+      fetchCurrentMember(activeWorkspace.id);
+    } else {
+      setCurrentMember(null);
+    }
+  }, [activeWorkspace?.id, user?.id]);
+
+  const getTabAccess = (tabKey: string): TabAccessLevel => {
+    if (!activeWorkspace || !user) return 'none';
+    // Workspace Owner always has full access to all tabs in their workspace
+    if (activeWorkspace.ownerId === user.id) return 'full';
+    if (currentMember?.role === 'owner') return 'full';
+
+    if (currentMember) {
+      if (currentMember.tabPermissions && currentMember.tabPermissions[tabKey] !== undefined) {
+        return currentMember.tabPermissions[tabKey];
+      }
+
+      if (currentMember.role === 'manager') {
+        return 'full';
+      }
+      if (currentMember.role === 'team' || currentMember.role === 'member') {
+        if (['billing', 'storage', 'settings'].includes(tabKey)) return 'none';
+        return 'full';
+      }
+      if (currentMember.role === 'client') {
+        if (tabKey === 'chats') return 'full';
+        if (tabKey === 'invoices') return 'view';
+        return 'none';
+      }
+    }
+
+    return 'full';
+  };
+
+  const fetchWorkspaces = async () => {
+    if (!user) {
+      setTimeout(() => {
+        setWorkspaces([]);
+        setActiveWorkspaceState(null);
+        setCurrentMember(null);
+        setLoading(false);
+      }, 0);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/workspaces');
+      if (res.ok) {
+        const data = (await res.json()) as Workspace[];
+        
+        setTimeout(() => {
+          setWorkspaces(data);
+
+          // Try to recover active workspace from localStorage
+          const storedActiveId = localStorage.getItem(`docspace_active_ws_${user.id}`);
+          let active = data.find(ws => ws.id === storedActiveId) || null;
+
+          // If not found in localStorage or no longer in membership, default to first workspace
+          if (!active && data.length > 0) {
+            active = data[0];
+          }
+
+          setActiveWorkspaceState(active);
+        }, 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch workspaces:', err);
+    } finally {
+      setTimeout(() => {
+        setLoading(false);
+      }, 0);
+    }
+  };
+
+  const setActiveWorkspace = (workspace: Workspace | null) => {
+    setActiveWorkspaceState(workspace);
+    if (user && workspace) {
+      localStorage.setItem(`docspace_active_ws_${user.id}`, workspace.id);
+    }
+  };
+
+  // Fetch workspaces whenever user context changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchWorkspaces();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const createWorkspace = async (name: string): Promise<Workspace> => {
+    const res = await fetch('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to create workspace');
+    }
+
+    // Refresh list and set active to new workspace
+    await fetchWorkspaces();
+    setActiveWorkspace(data);
+    return data;
+  };
+
+  return (
+    <WorkspaceContext.Provider value={{
+      workspaces,
+      activeWorkspace,
+      loading,
+      currentMember,
+      getTabAccess,
+      refreshCurrentMember,
+      setActiveWorkspace,
+      fetchWorkspaces,
+      createWorkspace,
+    }}>
+      {children}
+    </WorkspaceContext.Provider>
+  );
+}
+
+export function useWorkspace() {
+  const context = useContext(WorkspaceContext);
+  if (!context) {
+    throw new Error('useWorkspace must be used within a WorkspaceProvider');
+  }
+  return context;
+}

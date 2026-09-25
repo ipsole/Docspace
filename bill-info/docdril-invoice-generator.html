@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docdril — Invoice & Receipt Generator</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:13px;background:#f4f4f4;color:#111;min-height:100vh}
+  .app{max-width:860px;margin:0 auto;padding:24px 16px}
+  h1{font-size:20px;font-weight:700;margin-bottom:4px;letter-spacing:-.3px}
+  .subtitle{font-size:12px;color:#666;margin-bottom:20px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{padding:7px 18px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:#555}
+  .tab.active{background:#111;color:#fff;border-color:#111;font-weight:500}
+  .card{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;margin-bottom:12px}
+  .sec{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .f{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+  .f label{font-size:11px;color:#666;font-weight:600}
+  .f input,.f select,.f textarea{padding:7px 9px;font-size:13px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#111;width:100%;outline:none}
+  .f input:focus,.f select:focus,.f textarea:focus{border-color:#111}
+  .f textarea{resize:vertical;min-height:52px}
+  .tpl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .tpl-card{border:1px solid #ddd;border-radius:8px;padding:10px;cursor:pointer;transition:all .15s}
+  .tpl-card:hover{border-color:#888}
+  .tpl-card.sel{border-color:#111;background:#f9f9f9;box-shadow:0 0 0 2px #111}
+  .tpl-name{font-size:13px;font-weight:700;margin-bottom:2px}
+  .tpl-desc{font-size:11px;color:#777}
+  .itbl{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:8px}
+  .itbl th{font-size:11px;font-weight:700;color:#666;text-align:left;padding:6px 5px;border-bottom:1px solid #e5e5e5;background:#fafafa}
+  .itbl td{padding:4px 3px;vertical-align:middle}
+  .itbl td input{padding:6px 7px;font-size:13px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#111;width:100%;outline:none}
+  .itbl td input:focus{border-color:#111}
+  .amt-cell{text-align:right;padding-right:8px;font-size:13px;color:#111;font-weight:500}
+  .del-btn{background:none;border:none;cursor:pointer;color:#aaa;font-size:20px;line-height:1;padding:0 4px}
+  .del-btn:hover{color:#e00}
+  .add-btn{font-size:13px;color:#555;background:#fafafa;border:1px dashed #ccc;border-radius:6px;padding:7px 12px;cursor:pointer;width:100%;margin-top:6px;text-align:center}
+  .add-btn:hover{background:#f0f0f0}
+  .ctrl-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  .ctrl-row label{font-size:12px;white-space:nowrap;color:#555;font-weight:600}
+  .ctrl-row select,.ctrl-row input[type=number]{padding:6px 8px;font-size:13px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#111;outline:none}
+  .ctrl-row input[type=number]{width:62px}
+  .trow{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;padding:3px 0}
+  .trow span{font-size:13px;color:#666;min-width:140px;text-align:right}
+  .trow strong{font-size:13px;min-width:90px;text-align:right;color:#111}
+  .trow.grand{border-top:1px solid #ddd;margin-top:6px;padding-top:8px}
+  .trow.grand strong{font-size:15px;font-weight:700}
+  .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+  .btn{padding:9px 20px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid #ccc;background:#fff;color:#111;font-weight:500}
+  .btn:hover{background:#f0f0f0}
+  .btn.primary{background:#111;color:#fff;border-color:#111}
+  .btn.primary:hover{background:#333}
+  .btn.success{background:#1a7a3f;color:#fff;border-color:#1a7a3f}
+  .btn.success:hover{background:#155e30}
+  @media(max-width:600px){.g2,.g3{grid-template-columns:1fr}.tpl-grid{grid-template-columns:1fr 1fr}.ctrl-row{gap:8px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Docdril™ — Invoice & Receipt Generator</h1>
+  <p class="subtitle">Fill in client details and line items, then preview and print.</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="setType('invoice')">Tax Invoice</button>
+    <button class="tab" onclick="setType('receipt')">Receipt</button>
+  </div>
+
+  <!-- Template -->
+  <div class="card">
+    <div class="sec">Template style</div>
+    <div class="tpl-grid">
+      <div class="tpl-card sel" id="tpl-classic" onclick="selTpl('classic')"><div class="tpl-name">Classic</div><div class="tpl-desc">Clean minimal layout</div></div>
+      <div class="tpl-card" id="tpl-modern" onclick="selTpl('modern')"><div class="tpl-name">Modern</div><div class="tpl-desc">Bold dark header</div></div>
+      <div class="tpl-card" id="tpl-compact" onclick="selTpl('compact')"><div class="tpl-name">Compact</div><div class="tpl-desc">Dense one-pager</div></div>
+    </div>
+  </div>
+
+  <!-- Doc details -->
+  <div class="card">
+    <div class="sec">Document details</div>
+    <div class="g3">
+      <div class="f"><label id="l-num">Invoice number</label><input id="doc-num" value="DOC-00102"></div>
+      <div class="f"><label id="l-date">Invoice date</label><input id="doc-date" type="date"></div>
+      <div class="f"><label id="l-due">Due date</label><input id="due-date" type="date"></div>
+    </div>
+    <div class="f"><label>Place of supply</label><input id="pos" placeholder="e.g. Uttarakhand (05)"></div>
+  </div>
+
+  <!-- Billed to -->
+  <div class="card">
+    <div class="sec">Billed to (client)</div>
+    <div class="g2">
+      <div class="f"><label>Client / company name</label><input id="to-name" placeholder="e.g. Buzzinga Eco Foods Pvt Ltd"></div>
+      <div class="f"><label>GSTIN</label><input id="to-gst" placeholder="e.g. 06AAJCB9667N1ZU"></div>
+    </div>
+    <div class="g2">
+      <div class="f"><label>Phone</label><input id="to-phone" placeholder="+91 XXXXXXXXXX"></div>
+      <div class="f"><label>Email</label><input id="to-email" placeholder="client@example.com"></div>
+    </div>
+    <div class="f"><label>Address</label><textarea id="to-addr" rows="2" placeholder="Street, City, State, PIN"></textarea></div>
+  </div>
+
+  <!-- Line items -->
+  <div class="card">
+    <div class="sec">Line items</div>
+    <table class="itbl">
+      <thead><tr>
+        <th style="width:4%">#</th>
+        <th style="width:43%">Description</th>
+        <th style="width:11%">Qty</th>
+        <th style="width:18%">Price (₹)</th>
+        <th style="width:17%">Amt (₹)</th>
+        <th style="width:7%"></th>
+      </tr></thead>
+      <tbody id="items-body"></tbody>
+    </table>
+    <button class="add-btn" onclick="addRow()">+ Add item</button>
+
+    <div class="ctrl-row">
+      <label>GST rate</label>
+      <select id="gst-rate" onchange="calc()">
+        <option value="0">0%</option><option value="5">5%</option>
+        <option value="12">12%</option><option value="18" selected>18%</option>
+        <option value="28">28%</option>
+      </select>
+      <label>GST type</label>
+      <select id="gst-type" onchange="calc()">
+        <option value="igst">IGST (interstate)</option>
+        <option value="cgst">CGST + SGST (intrastate)</option>
+      </select>
+      <label>Discount %</label>
+      <input type="number" id="disc" value="0" min="0" max="100" oninput="calc()">
+      <label>Advance %</label>
+      <input type="number" id="adv" value="20" min="0" max="100" oninput="calc()">
+    </div>
+
+    <div style="margin-top:14px">
+      <div class="trow"><span>Subtotal</span><strong id="t-sub">₹0.00</strong></div>
+      <div class="trow" id="tr-disc" style="display:none"><span>Discount</span><strong id="t-disc"></strong></div>
+      <div class="trow" id="tr-igst" style="display:none"><span id="l-igst">IGST @18%</span><strong id="t-igst"></strong></div>
+      <div class="trow" id="tr-cgst" style="display:none"><span id="l-cgst">CGST @9%</span><strong id="t-cgst"></strong></div>
+      <div class="trow" id="tr-sgst" style="display:none"><span id="l-sgst">SGST @9%</span><strong id="t-sgst"></strong></div>
+      <div class="trow grand"><span>Total payable</span><strong id="t-total">₹0.00</strong></div>
+      <div class="trow" id="tr-adv" style="display:none"><span id="l-adv">Advance (20%)</span><strong id="t-adv"></strong></div>
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div class="card">
+    <div class="sec">Notes</div>
+    <div class="f"><label>Note shown on invoice</label><textarea id="notes" rows="2">We appreciate the opportunity to work with you!</textarea></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" onclick="previewDoc()">Preview</button>
+    <button class="btn primary" onclick="printDoc()">Print / Save PDF</button>
+    <button class="btn success" onclick="downloadHTML()">Download as HTML</button>
+  </div>
+</div>
+
+<!-- PRINT AREA (hidden) -->
+<div id="print-area" style="display:none"></div>
+
+<style>
+@media print {
+  body > .app { display: none !important; }
+  #print-area { display: block !important; }
+}
+</style>
+
+<script>
+const FROM={
+  name:'Docdril',
+  gstin:'10CKTPC0886R1ZL',
+  addr:'Ward No. 21, Station Road, Samastipur, 848101',
+  phone:'+91 6203526454',
+  email:'info@docdril.com',
+  web:'docdril.com',
+  bank:'Bank Name: Kotak Mahindra\nIFSC: KKBK0008057\nA/c Number: 2645691612\nUPI ID: 7304631447@okbizaxis'
+};
+let docType='invoice', tpl='classic', rowId=0;
+
+function setType(t){
+  docType=t;
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',i===(t==='invoice'?0:1)));
+  const isI=t==='invoice';
+  document.getElementById('l-num').textContent=isI?'Invoice number':'Receipt number';
+  document.getElementById('l-date').textContent=isI?'Invoice date':'Receipt date';
+  document.getElementById('l-due').textContent=isI?'Due date':'Payment date';
+  document.getElementById('doc-num').value=isI?'DOC-00102':'REC-00101';
+}
+
+function selTpl(t){
+  tpl=t;
+  ['classic','modern','compact'].forEach(x=>document.getElementById('tpl-'+x).classList.toggle('sel',x===t));
+}
+
+function addRow(){
+  rowId++;
+  const id=rowId;
+  const tbody=document.getElementById('items-body');
+  const rowNum=tbody.querySelectorAll('tr').length+1;
+  const tr=document.createElement('tr');
+  tr.id='row-'+id;
+  tr.innerHTML=`
+    <td style="color:#999;padding-left:5px;font-size:12px">${rowNum}</td>
+    <td><input type="text" placeholder="Service or product description" oninput="calc()"></td>
+    <td><input type="number" value="1" min="1" style="width:52px" oninput="updAmt(${id})"></td>
+    <td><input type="number" value="0" min="0" step="0.01" oninput="updAmt(${id})"></td>
+    <td class="amt-cell" id="amt-${id}">₹0.00</td>
+    <td><button class="del-btn" onclick="delRow(${id})" title="Remove">×</button></td>`;
+  tbody.appendChild(tr);
+  calc();
+}
+
+function updAmt(id){
+  const tr=document.getElementById('row-'+id);
+  if(!tr)return;
+  const inputs=tr.querySelectorAll('input[type=number]');
+  const qty=parseFloat(inputs[0].value)||0;
+  const rate=parseFloat(inputs[1].value)||0;
+  const cell=document.getElementById('amt-'+id);
+  if(cell) cell.textContent='₹'+(qty*rate).toFixed(2);
+  calc();
+}
+
+function delRow(id){
+  const tr=document.getElementById('row-'+id);
+  if(tr)tr.remove();
+  document.querySelectorAll('#items-body tr').forEach((r,i)=>{r.cells[0].textContent=i+1;});
+  calc();
+}
+
+function getItems(){
+  return Array.from(document.querySelectorAll('#items-body tr')).map(tr=>{
+    const ins=tr.querySelectorAll('input');
+    return{
+      desc:ins[0]?ins[0].value:'',
+      qty:parseFloat(ins[1]?ins[1].value:1)||0,
+      rate:parseFloat(ins[2]?ins[2].value:0)||0
+    };
+  });
+}
+
+function calc(){
+  const its=getItems();
+  const sub=its.reduce((s,i)=>s+i.qty*i.rate,0);
+  const disc=parseFloat(document.getElementById('disc').value)||0;
+  const dAmt=sub*(disc/100);
+  const taxable=sub-dAmt;
+  const gR=parseFloat(document.getElementById('gst-rate').value)||0;
+  const gT=document.getElementById('gst-type').value;
+  const gAmt=taxable*(gR/100);
+  const total=taxable+gAmt;
+  const advP=parseFloat(document.getElementById('adv').value)||0;
+  const advAmt=total*(advP/100);
+  const fmt=n=>'₹'+n.toFixed(2);
+  document.getElementById('t-sub').textContent=fmt(sub);
+  document.getElementById('tr-disc').style.display=disc>0?'flex':'none';
+  document.getElementById('t-disc').textContent='-'+fmt(dAmt);
+  if(gT==='igst'){
+    document.getElementById('tr-igst').style.display='flex';
+    document.getElementById('tr-cgst').style.display='none';
+    document.getElementById('tr-sgst').style.display='none';
+    document.getElementById('l-igst').textContent='IGST @'+gR+'%';
+    document.getElementById('t-igst').textContent=fmt(gAmt);
+  } else {
+    document.getElementById('tr-igst').style.display='none';
+    document.getElementById('tr-cgst').style.display='flex';
+    document.getElementById('tr-sgst').style.display='flex';
+    document.getElementById('l-cgst').textContent='CGST @'+(gR/2)+'%';
+    document.getElementById('l-sgst').textContent='SGST @'+(gR/2)+'%';
+    document.getElementById('t-cgst').textContent=fmt(gAmt/2);
+    document.getElementById('t-sgst').textContent=fmt(gAmt/2);
+  }
+  document.getElementById('t-total').textContent=fmt(total);
+  document.getElementById('tr-adv').style.display=advP>0?'flex':'none';
+  document.getElementById('l-adv').textContent='Advance ('+advP+'%)';
+  document.getElementById('t-adv').textContent=fmt(advAmt);
+}
+
+function gv(id){return document.getElementById(id).value.trim();}
+
+function buildInvoiceHTML(forPrint){
+  const isI=docType==='invoice';
+  const its=getItems();
+  const sub=its.reduce((s,i)=>s+i.qty*i.rate,0);
+  const disc=parseFloat(gv('disc'))||0;
+  const dAmt=sub*(disc/100);
+  const taxable=sub-dAmt;
+  const gR=parseFloat(document.getElementById('gst-rate').value)||0;
+  const gT=document.getElementById('gst-type').value;
+  const gAmt=taxable*(gR/100);
+  const total=taxable+gAmt;
+  const advP=parseFloat(gv('adv'))||0;
+  const advAmt=total*(advP/100);
+  const f2=n=>n.toFixed(2);
+
+  const gstRows=gAmt>0?(gT==='igst'
+    ?`<tr><td colspan="3"></td><td style="text-align:right;padding:6px 8px;font-weight:700">IGST @${gR}%</td><td style="text-align:right;padding:6px 8px">${f2(gAmt)}</td></tr>`
+    :`<tr><td colspan="3"></td><td style="text-align:right;padding:6px 8px;font-weight:700">CGST @${gR/2}%</td><td style="text-align:right;padding:6px 8px">${f2(gAmt/2)}</td></tr><tr><td colspan="3"></td><td style="text-align:right;padding:6px 8px;font-weight:700">SGST @${gR/2}%</td><td style="text-align:right;padding:6px 8px">${f2(gAmt/2)}</td></tr>`):'';
+  const discRow=disc>0?`<tr><td colspan="3"></td><td style="text-align:right;padding:6px 8px;font-weight:700">Discount ${disc}%</td><td style="text-align:right;padding:6px 8px">-${f2(dAmt)}</td></tr>`:'';
+  const advBox=advP>0?`<div style="background:#efefef;border-radius:6px;padding:10px 16px;text-align:center;font-weight:700;font-size:13px;margin:16px 0">${advP}% advance (₹${f2(advAmt)}) required to initiate the project.</div>`:'';
+  const itemRows=its.map((it,i)=>`<tr><td style="padding:8px">${i+1}.</td><td style="padding:8px">${it.desc||'—'}</td><td style="text-align:center;padding:8px">${it.qty}</td><td style="text-align:right;padding:8px">${f2(it.rate)}</td><td style="text-align:right;padding:8px">${f2(it.qty*it.rate)}</td></tr>`).join('');
+
+  const dark=tpl==='modern';
+  const compact=tpl==='compact';
+  const P=compact?'14px':'24px';
+  const hdrBg=dark?'background:#111;color:#fff;':'border-bottom:2px solid #111;';
+  const sub1=dark?'#bbb':'#555';
+  const titleCol=dark?'#fff':'#111';
+  const fs=compact?'12px':'13px';
+
+  const hdr=`<div style="${hdrBg}display:flex;justify-content:space-between;align-items:flex-start;padding:${P};${compact?'':'margin-bottom:20px'}">
+    <div>
+      <div style="font-size:${compact?'20px':'26px'};font-weight:900;letter-spacing:-.5px;color:${titleCol}">Docdril™</div>
+      <div style="font-size:11px;color:${sub1};margin-top:3px">${FROM.addr}</div>
+      <div style="font-size:11px;color:${sub1}">${FROM.phone} &nbsp;|&nbsp; ${FROM.email}</div>
+      <div style="font-size:11px;color:${sub1}">GSTIN: ${FROM.gstin}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:${compact?'13px':'16px'};font-weight:900;text-transform:uppercase;color:${titleCol}">${isI?'Tax Invoice':'Receipt'}</div>
+      <div style="font-size:12px;color:${sub1};margin-top:4px"><b>Invoice No.</b> ${gv('doc-num')||'DOC-00101'}</div>
+      <div style="font-size:12px;color:${sub1}"><b>${isI?'Invoice Date':'Date'}:</b> ${gv('doc-date')}</div>
+      ${gv('due-date')?`<div style="font-size:12px;color:${sub1}"><b>${isI?'Due Date':'Payment Date'}:</b> ${gv('due-date')}</div>`:''}
+    </div>
+  </div>`;
+
+  const bodyPad=dark?`padding:${P};`:'';
+
+  const parties=`<table style="width:100%;border-collapse:collapse;margin-bottom:${compact?'14px':'20px'}">
+    <tr>
+      <td style="width:50%;vertical-align:top;padding-right:16px;border-right:1px solid #ddd;font-size:${fs}">
+        <div style="font-weight:700;margin-bottom:5px;font-size:13px">Billed To:</div>
+        <div style="font-weight:700">${gv('to-name')||'Client Name'}</div>
+        ${gv('to-gst')?`<div>GSTIN - ${gv('to-gst')}</div>`:''}
+        ${gv('to-addr')?`<div>${gv('to-addr').replace(/\n/g,'<br>')}</div>`:''}
+        ${gv('to-phone')?`<div>${gv('to-phone')}</div>`:''}
+        ${gv('to-email')?`<div>${gv('to-email')}</div>`:''}
+      </td>
+      <td style="width:50%;vertical-align:top;padding-left:16px;font-size:${fs}">
+        <div style="font-weight:700;margin-bottom:5px;font-size:13px">Issued By:</div>
+        <div style="font-weight:700">Docdril</div>
+        <div>GSTIN - ${FROM.gstin}</div>
+        <div>${FROM.addr}</div>
+        <div>${FROM.phone}</div>
+        ${gv('pos')?`<div style="margin-top:6px"><b>Place Of Supply -</b> ${gv('pos')}</div>`:''}
+      </td>
+    </tr>
+  </table>`;
+
+  const tbl=`<table style="width:100%;border-collapse:collapse;font-size:${fs}">
+    <thead><tr style="border-top:1px solid #ccc;border-bottom:1px solid #ccc;background:#f5f5f5">
+      <th style="padding:${compact?'5px 6px':'8px'};text-align:left;width:5%">Sno.</th>
+      <th style="padding:${compact?'5px 6px':'8px'};text-align:left;width:44%">Description</th>
+      <th style="padding:${compact?'5px 6px':'8px'};text-align:center;width:10%">Qty.</th>
+      <th style="padding:${compact?'5px 6px':'8px'};text-align:right;width:20%">Price (₹)</th>
+      <th style="padding:${compact?'5px 6px':'8px'};text-align:right;width:21%">Amt. (₹)</th>
+    </tr></thead>
+    <tbody>
+      ${itemRows}
+      <tr><td colspan="5" style="padding:4px;border-top:1px solid #eee"></td></tr>
+      ${discRow}
+      <tr><td colspan="3"></td><td style="text-align:right;padding:6px 8px;font-weight:700;border-top:1px solid #ddd">Subtotal</td><td style="text-align:right;padding:6px 8px;border-top:1px solid #ddd">${f2(sub)}</td></tr>
+      ${gstRows}
+      <tr style="font-weight:900;border-top:2px solid #111">
+        <td colspan="3"></td>
+        <td style="text-align:right;padding:${compact?'6px':'9px'} 8px">Total Payable</td>
+        <td style="text-align:right;padding:${compact?'6px':'9px'} 8px">${f2(total)}</td>
+      </tr>
+    </tbody>
+  </table>`;
+
+  const payment=`<table style="width:100%;margin-top:${compact?'14px':'20px'};border-collapse:collapse;font-size:${fs}">
+    <tr>
+      <td style="vertical-align:top;width:58%">
+        <div style="font-weight:700;margin-bottom:6px">Payment Details:</div>
+        <div>${FROM.bank.replace(/\n/g,'<br>')}</div>
+      </td>
+      <td style="vertical-align:top;text-align:right">
+        <div style="display:inline-block;background:#efefef;border-radius:6px;padding:10px 14px;text-align:left">
+          <div style="font-size:10px;color:#888;margin-bottom:3px">UPI ID</div>
+          <div style="font-weight:700;font-size:13px">7304631447@okbizaxis</div>
+          <div style="font-size:10px;color:#999;margin-top:3px">Open any UPI app to pay</div>
+        </div>
+      </td>
+    </tr>
+  </table>`;
+
+  const notes=gv('notes')?`<div style="margin-top:12px;font-size:12px;color:#666;font-style:italic">${gv('notes')}</div>`:'';
+  const footer=`<div style="border-top:1px solid #ddd;margin-top:${compact?'14px':'20px'};padding-top:10px;text-align:center;font-size:11px;color:#999">We appreciate the opportunity to work with you! &nbsp;|&nbsp; info@docdril.com</div>`;
+
+  const printStyle=forPrint?`<style>@page{margin:15mm}body{margin:0;padding:0}</style>`:'';
+
+  return`<!DOCTYPE html><html><head><meta charset="UTF-8">${printStyle}<style>body{font-family:Arial,sans-serif;font-size:13px;color:#111;margin:0;padding:${dark?'0':P};background:#fff}</style></head><body>
+    ${hdr}
+    <div style="${bodyPad}">${parties}${tbl}${advBox}${payment}${notes}</div>
+    ${footer}
+  </body></html>`;
+}
+
+function previewDoc(){
+  const existing=document.getElementById('preview-modal');
+  if(existing)existing.remove();
+  const modal=document.createElement('div');
+  modal.id='preview-modal';
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:760px;height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eee">
+        <span style="font-weight:700;font-size:14px">Preview</span>
+        <div style="display:flex;gap:8px">
+          <button onclick="printDoc()" style="padding:7px 16px;border-radius:6px;border:none;background:#111;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Print / Save PDF</button>
+          <button onclick="document.getElementById('preview-modal').remove()" style="padding:7px 16px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;font-size:13px">Close</button>
+        </div>
+      </div>
+      <iframe id="preview-iframe" style="flex:1;border:none;width:100%"></iframe>
+    </div>`;
+  document.body.appendChild(modal);
+  const iframe=document.getElementById('preview-iframe');
+  iframe.srcdoc=buildInvoiceHTML(false);
+}
+
+function printDoc(){
+  const html=buildInvoiceHTML(true);
+  const pa=document.getElementById('print-area');
+  pa.innerHTML=`<iframe id="pf" style="width:100%;height:100%;border:none" srcdoc="${html.replace(/"/g,'&quot;')}"></iframe>`;
+  pa.style.display='block';
+
+  const iframe=document.getElementById('pf');
+  iframe.onload=function(){
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }catch(e){
+      const w=window.open('','_blank','width=800,height=900');
+      if(w){w.document.write(html);w.document.close();w.onload=()=>{w.print();};}
+    }
+    setTimeout(()=>{pa.style.display='none';pa.innerHTML='';},2000);
+  };
+}
+
+function downloadHTML(){
+  const html=buildInvoiceHTML(false);
+  const docNum=gv('doc-num')||'invoice';
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='docdril-'+docNum+'.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+const td=new Date().toISOString().split('T')[0];
+document.getElementById('doc-date').value=td;
+const dd=new Date();dd.setDate(dd.getDate()+30);
+document.getElementById('due-date').value=dd.toISOString().split('T')[0];
+addRow();addRow();
+</script>
+</body>
+</html>
