@@ -286,13 +286,25 @@ export default function ChatsPage() {
   // WhatsApp-style Client Peek Sidebar integration states
   const [showClientSidebar, setShowClientSidebar] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<'info' | 'projects' | 'billing' | 'files' | 'events'>('info');
-  const [crmClients, setCrmClients] = useState<Client[]>([]);
+  const [crmClients, setCrmClients] = useState<Client[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const cached = getStoredItem('cached_crm_clients');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [crmProjects, setCrmProjects] = useState<Project[]>([]);
   const [crmInvoices, setCrmInvoices] = useState<Invoice[]>([]);
   const [crmEvents, setCrmEvents] = useState<CalendarEvent[]>([]);
   const [clientFiles, setClientFiles] = useState<any[]>([]);
   const [loadingClientFiles, setLoadingClientFiles] = useState(false);
-  const [chatClientLinks, setChatClientLinks] = useState<Record<string, string>>({});
+  const [chatClientLinks, setChatClientLinks] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const cached = getStoredItem('cached_chat_client_links');
+      return cached ? JSON.parse(cached) : {};
+    } catch { return {}; }
+  });
   type FilterTabId = 'all' | 'channels' | 'clients' | 'direct' | 'groups' | 'older' | 'inactive';
   const DEFAULT_FILTER_TAB_ORDER: FilterTabId[] = ['all', 'channels', 'clients', 'direct', 'groups', 'older', 'inactive'];
 
@@ -456,7 +468,10 @@ export default function ChatsPage() {
       fetch(`/api/crm/clients?workspaceId=${activeWorkspace.id}`)
         .then(res => res.ok ? res.json() : null)
         .then(data => {
-          if (Array.isArray(data)) setCrmClients(data);
+          if (Array.isArray(data)) {
+            setCrmClients(data);
+            try { setStoredItem('cached_crm_clients', JSON.stringify(data)); } catch {}
+          }
         })
         .catch(() => {});
     };
@@ -510,18 +525,43 @@ export default function ChatsPage() {
   const isNearBottom = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 250;
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    el.scrollTop = el.scrollHeight;
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
+    }
     setShowScrollDown(false);
     if (activeConvIdRef.current) {
       setNewMessageNotice(prev => prev?.chatId === activeConvIdRef.current ? null : prev);
     }
   }, []);
+
+  // Instantly jump to bottom when switching chats so top messages never flash
+  useEffect(() => {
+    if (!activeConv?.id) return;
+    const el = messagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }
+  }, [activeConv?.id]);
+
+  // Keep scrolled to bottom when messages arrive if user is viewing latest messages
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (isNearBottom()) {
+      scrollToBottom('auto');
+      const timer = setTimeout(() => scrollToBottom('auto'), 60);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, isNearBottom, scrollToBottom]);
 
   const playNotification = useCallback(() => {
     try {
@@ -752,7 +792,11 @@ export default function ChatsPage() {
         fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`),
         fetch(`/api/calendar?workspaceId=${activeWorkspace.id}`),
       ]);
-      if (clientsRes.ok) setCrmClients(await clientsRes.json());
+      if (clientsRes.ok) {
+        const clientData = await clientsRes.json();
+        setCrmClients(clientData);
+        try { setStoredItem('cached_crm_clients', JSON.stringify(clientData)); } catch {}
+      }
       if (projectsRes.ok) setCrmProjects(await projectsRes.json());
       if (invoicesRes.ok) setCrmInvoices(await invoicesRes.json());
       if (eventsRes.ok) setCrmEvents(await eventsRes.json());
@@ -1639,6 +1683,12 @@ export default function ChatsPage() {
         
         // 1. If message is for the active conversation
         if (activeConvIdRef.current === normMsg.chatId) {
+          setTypingUsers(prev => {
+            if (prev[normMsg.senderId]?.isTyping) {
+              return { ...prev, [normMsg.senderId]: { ...prev[normMsg.senderId], isTyping: false } };
+            }
+            return prev;
+          });
           setMessages(prev => {
             if (prev.some(m => m.id === normMsg.id)) return prev;
             const tempIdx = prev.findIndex(m => m.id.startsWith('temp_') && m.senderId === normMsg.senderId && m.content === normMsg.content);
@@ -1763,10 +1813,25 @@ export default function ChatsPage() {
       try {
         const { chatId, userId, username, isTyping } = JSON.parse(e.data);
         if (activeConvIdRef.current === chatId) {
+          // Never display typing indicator for yourself
+          if (userId === userRef.current?.id || userId === user?.id) return;
           setTypingUsers(prev => ({
             ...prev,
-            [userId]: { username, isTyping }
+            [userId]: { username, isTyping: Boolean(isTyping) }
           }));
+
+          // Automatically clear typing indicator after 3.5s so it never gets stuck
+          if (isTyping) {
+            setTimeout(() => {
+              setTypingUsers(prev => {
+                if (!prev[userId] || !prev[userId].isTyping) return prev;
+                return {
+                  ...prev,
+                  [userId]: { ...prev[userId], isTyping: false }
+                };
+              });
+            }, 3500);
+          }
         }
       } catch {}
     });
@@ -1923,7 +1988,7 @@ export default function ChatsPage() {
             if (!document.hidden && activeConvIdRef.current === currentChatId) {
               fetchMessages(currentChatId, false, true);
             }
-          }, 1500);
+          }, 900);
         }
       });
     } catch {
@@ -1932,12 +1997,20 @@ export default function ChatsPage() {
         if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }, 1500);
+      }, 900);
     }
+
+    const handleFocus = () => {
+      if (activeConvIdRef.current === currentChatId) {
+        fetchMessages(currentChatId, false, true);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       if (unsubscribe) unsubscribe();
       if (pollTimer) clearInterval(pollTimer);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [activeConv?.id, fetchMessages, normalizeMessage, scrollToBottom]);
 
