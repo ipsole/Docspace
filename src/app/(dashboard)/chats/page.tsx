@@ -1767,12 +1767,12 @@ export default function ChatsPage() {
     }
   }, [activeConv?.id, fetchMessages]);
 
-  // Continuous real-time synchronization loop for active conversation (0ms-1s real-time feel)
+  // Continuous real-time synchronization loop for active conversation (sub-second live updates)
   useEffect(() => {
     if (!activeConv?.id) return;
     const currentChatId = activeConv.id;
 
-    let pollInterval = 1200; // 1.2 seconds when tab is active
+    let pollInterval = 900; // 900ms when tab is active
     let timer: NodeJS.Timeout;
 
     const tick = () => {
@@ -1788,9 +1788,9 @@ export default function ChatsPage() {
 
     const handleVisibility = () => {
       if (document.hidden) {
-        pollInterval = 6000;
+        pollInterval = 4000;
       } else {
-        pollInterval = 1200;
+        pollInterval = 900;
         if (activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
@@ -4106,7 +4106,7 @@ export default function ChatsPage() {
                 const canDelete = isOwn || isWorkspaceAdminOrOwner || isConvoAdmin;
                 const isHighlighted = msg.id === highlightedMessageId;
                 return (
-                  <div id={`message-${msg.id}`} key={msg.id} className={`flex gap-2.5 group transition-all duration-500 ${isOwn ? 'flex-row-reverse' : ''} ${isHighlighted ? 'scale-[1.01]' : ''}`}>
+                  <div id={`message-${msg.id}`} key={msg.id} className={`flex gap-2.5 group ${isOwn ? 'flex-row-reverse' : ''} ${isHighlighted ? 'scale-[1.01] transition-transform duration-200' : ''}`}>
                     {/* Avatar */}
                     <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 mt-1 overflow-hidden ${
                       isOwn ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
@@ -4125,7 +4125,7 @@ export default function ChatsPage() {
                         <span>{formatTime(msg.createdAt)}</span>
                       </div>
                       
-                      <div className={`p-3 rounded-2xl text-xs relative border shadow-sm transition-all duration-500 ${
+                      <div className={`p-3 rounded-2xl text-xs relative border shadow-sm ${
                         isOwn ? 'rounded-tr-none font-medium' : 'rounded-tl-none'
                       } ${isHighlighted 
                         ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/30 shadow-md scale-[1.01]' 

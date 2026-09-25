@@ -13,8 +13,14 @@ export interface FirestoreDocEntry<T = any> {
   data: T;
 }
 
-// TTL: 60 seconds by default (saves reads, instant page loads, write-through invalidates immediately)
+// Default TTL for static/slow collections (saves reads, instant page loads)
 const DEFAULT_TTL_MS = 60 * 1000;
+
+function getCollectionTTL(collectionName: string): number {
+  if (collectionName === 'messages') return 0; // ZERO TTL: always fetch live messages directly from Firestore
+  if (collectionName === 'conversations') return 500; // 0.5s TTL for conversations
+  return DEFAULT_TTL_MS;
+}
 
 // Individual document cache: key is "collection/docId"
 const docCache = new Map<string, CacheEntry<any>>();
@@ -69,9 +75,10 @@ export function invalidateCache(collectionName?: string, docId?: string): void {
 export async function firestoreGet<T = any>(collectionName: string, docId: string): Promise<T | null> {
   const cacheKey = `${collectionName}/${docId}`;
   const now = Date.now();
+  const ttl = getCollectionTTL(collectionName);
 
   const cached = docCache.get(cacheKey);
-  if (cached && (now - cached.cachedAt < DEFAULT_TTL_MS)) {
+  if (ttl > 0 && cached && (now - cached.cachedAt < ttl)) {
     return cached.data as T;
   }
 
@@ -172,8 +179,9 @@ export async function firestoreDelete(collectionName: string, docId: string): Pr
  */
 export async function firestoreListDocs<T = any>(collectionName: string): Promise<FirestoreDocEntry<T>[]> {
   const now = Date.now();
+  const ttl = getCollectionTTL(collectionName);
   const cached = collectionCache.get(collectionName);
-  if (cached && (now - cached.cachedAt < DEFAULT_TTL_MS)) {
+  if (ttl > 0 && cached && (now - cached.cachedAt < ttl)) {
     return cached.data as FirestoreDocEntry<T>[];
   }
 
