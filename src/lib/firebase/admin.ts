@@ -1,11 +1,9 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
-import { getAuth, Auth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 
 let firestoreInstance: Firestore | null = null;
-let authInstance: Auth | null = null;
 let appInstance: App | null = null;
 
 export function getFirebaseAdminApp(): App | null {
@@ -96,14 +94,6 @@ export function getFirestoreDb(): Firestore | null {
   if (!app) return null;
   firestoreInstance = getFirestore(app);
   return firestoreInstance;
-}
-
-export function getFirebaseAuth(): Auth | null {
-  if (authInstance) return authInstance;
-  const app = getFirebaseAdminApp();
-  if (!app) return null;
-  authInstance = getAuth(app);
-  return authInstance;
 }
 
 export function isFirestoreEnabled(): boolean {

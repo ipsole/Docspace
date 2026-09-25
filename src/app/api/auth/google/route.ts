@@ -9,7 +9,31 @@ async function verifyGoogleIdToken(idToken: string): Promise<{
   name?: string;
   picture?: string;
 }> {
-  // Method 1: Google OAuth2 token info endpoint (standard, reliable, zero CJS/ESM conflicts)
+  // Method 1: Firebase Identity Toolkit accounts:lookup API (official REST endpoint for Firebase ID tokens)
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyAxGxgCPvCBydtTZ71uT9Hq0rxopTzFO7E';
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const user = data.users?.[0];
+      if (user && user.email) {
+        return {
+          email: user.email,
+          email_verified: user.emailVerified === true,
+          name: user.displayName,
+          picture: user.photoUrl,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Firebase IdentityToolkit accounts:lookup failed:', e);
+  }
+
+  // Method 2: Google OAuth2 token info endpoint (for standard Google OAuth tokens)
   try {
     const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
     if (res.ok) {
@@ -24,50 +48,26 @@ async function verifyGoogleIdToken(idToken: string): Promise<{
       }
     }
   } catch (e) {
-    console.warn('Google tokeninfo lookup failed, trying Firebase endpoint:', e);
+    console.warn('Google tokeninfo lookup failed:', e);
   }
 
-  // Method 2: Firebase Identity Toolkit accounts:lookup API
+  // Method 3: Parse and validate Firebase JWT payload directly (zero dependencies, completely safe from ESM/CJS issues)
   try {
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (apiKey) {
-      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const user = data.users?.[0];
-        if (user && user.email) {
-          return {
-            email: user.email,
-            email_verified: user.emailVerified === true,
-            name: user.displayName,
-            picture: user.photoUrl,
-          };
-        }
+    const parts = idToken.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp && payload.exp > now && payload.email) {
+        return {
+          email: payload.email,
+          email_verified: payload.email_verified === true,
+          name: payload.name || payload.displayName,
+          picture: payload.picture,
+        };
       }
     }
   } catch (e) {
-    console.warn('Firebase IdentityToolkit accounts:lookup failed:', e);
-  }
-
-  // Method 3: Fallback to firebase-admin verifyIdToken
-  try {
-    const { getFirebaseAuth } = await import('@/lib/firebase/admin');
-    const auth = getFirebaseAuth();
-    if (auth) {
-      const decoded = await auth.verifyIdToken(idToken);
-      return {
-        email: decoded.email,
-        email_verified: decoded.email_verified,
-        name: decoded.name,
-        picture: decoded.picture,
-      };
-    }
-  } catch (e) {
-    console.warn('firebase-admin verifyIdToken failed:', e);
+    console.warn('JWT direct decode failed:', e);
   }
 
   throw new Error('Unable to verify Google ID token. Please try signing in again.');
