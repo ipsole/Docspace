@@ -35,14 +35,18 @@ export function getFirebaseAdminApp(): App | null {
     // 2. Try loading from FIREBASE_SERVICE_ACCOUNT_BASE64 (base64 string, completely safe from false positives)
     if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
       try {
-        const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+        const cleanB64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64.replace(/^["']|["']$/g, '').trim();
+        const decoded = Buffer.from(cleanB64, 'base64').toString('utf-8');
         const serviceAccount = JSON.parse(decoded);
+        if (serviceAccount.private_key && serviceAccount.private_key.includes('\\n')) {
+          serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
         appInstance = initializeApp({
           credential: cert(serviceAccount),
         });
         return appInstance;
       } catch (e) {
-        console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64:', e);
+        console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64:', e);
       }
     }
 

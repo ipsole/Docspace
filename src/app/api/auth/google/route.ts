@@ -7,6 +7,15 @@ import { logInfo, logError } from '@/lib/storage/logger';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+export async function GET() {
+  const auth = getFirebaseAuth();
+  return NextResponse.json({
+    status: 'ready',
+    authConfigured: Boolean(auth),
+    backend: process.env.DATA_BACKEND || 'not-configured'
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
