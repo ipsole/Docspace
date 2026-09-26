@@ -1,0 +1,16 @@
+{
+  "preferences": {},
+  "role": "admin",
+  "bio": "the best man working hard and harder",
+  "passwordHash": "$2b$10$evRhl19QcqXleOZTs4xPoudSmOoA2n4YzTgmw0JB/3TQDW.HGFgwC",
+  "createdAt": "2026-07-10T03:23:32.933Z",
+  "theme": "system",
+  "id": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+  "username": "piyush",
+  "displayName": "piyush",
+  "avatar": "/api/files?name=1783654215493_609d19db-a97a-492a-b7e5-e8d93487c2fc.jpeg&type=avatar",
+  "email": "itpiyu@gmail.com",
+  "lastSeen": "2026-09-25T14:32:45.845Z",
+  "status": "online",
+  "updatedAt": "2026-09-25T14:32:45.846Z"
+}

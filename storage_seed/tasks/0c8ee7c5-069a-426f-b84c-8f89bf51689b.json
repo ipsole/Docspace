@@ -1,0 +1,29 @@
+{
+  "attachments": [
+    {
+      "id": "eb9c5419-e4ef-486b-adf4-c73d1741ee60",
+      "name": "typo_video-3.mp4",
+      "url": "/api/files?name=1790287353504_9603aa06-d0bf-4a75-a455-ffb645230004_typo_video-3.mp4&type=uploads",
+      "size": 389572589,
+      "mimeType": "video/mp4"
+    }
+  ],
+  "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+  "comments": [],
+  "subtasks": [],
+  "dueDate": "2026-09-24T12:15",
+  "description": "",
+  "dueTime": "12:15",
+  "priority": "medium",
+  "title": "New stage item",
+  "assigneeId": null,
+  "dependencies": [],
+  "tags": [],
+  "createdAt": "2026-09-19T22:40:14.134Z",
+  "money": null,
+  "timeSpentSec": 0,
+  "id": "0c8ee7c5-069a-426f-b84c-8f89bf51689b",
+  "projectId": "9fef98b7-ba92-4271-bc7b-6584ba7d419a",
+  "status": "todo",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5"
+}

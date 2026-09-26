@@ -1,0 +1,109 @@
+[
+  {
+    "id": "775b9d55-c459-4a29-9e9f-76c0b824da3b",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "file fty",
+    "type": "text",
+    "createdAt": "2026-07-13T04:49:59.029Z",
+    "editedAt": "2026-07-13T05:18:29.957Z",
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "20722ca9-e290-416e-8881-f254167df988",
+        "name": "Copy of Artboard 3-100.jpg",
+        "url": "/api/files?name=1783918199000_0c7ba0ea-01b1-423b-b7fb-004dd5e6ad87_Copy_of_Artboard_3-100.jpg&type=upload",
+        "mimeType": "image/jpeg",
+        "size": 1491318
+      }
+    ],
+    "replyTo": null,
+    "reactions": []
+  },
+  {
+    "id": "36df1ce4-0c74-4dd8-a6e8-e20ef48fccf8",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "content": "Shared file: liver_3.zip",
+    "type": "text",
+    "createdAt": "2026-07-17T12:41:26.888Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "78e8b0d5-2075-4392-8d7d-f951e2d2db6c",
+        "name": "liver_3.zip",
+        "url": "/api/files?name=1784292079699_4f82c349-1da6-4aae-b635-7ba134834a09_liver_3.zip&type=upload",
+        "mimeType": "application/zip",
+        "size": 42319587
+      }
+    ],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "cb1f610b-33d5-4391-8dc6-849db8ccd83a",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "docdril.com",
+    "type": "text",
+    "createdAt": "2026-07-17T12:43:26.507Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "2ecccf52-cf12-45ec-8864-1a2715d6eb5b",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "content": "https://www.instagram.com/buildofy.india/reels/",
+    "type": "text",
+    "createdAt": "2026-07-17T12:43:38.416Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "180255e0-0939-471a-af46-f19e0cf4c39c",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "Shared file: PHOTO-2026-07-15-13-50-09.jpg",
+    "type": "text",
+    "createdAt": "2026-07-17T12:44:12.013Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "736fa632-f4ff-4ea9-bf0f-5e2f965cd2ed",
+        "name": "PHOTO-2026-07-15-13-50-09.jpg",
+        "url": "/api/files?name=1784292251690_9dde73f3-e912-4251-9358-661126b23e40_PHOTO-2026-07-15-13-50-09.jpg&type=upload",
+        "mimeType": "image/jpeg",
+        "size": 1356
+      }
+    ],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "3963f543-886e-4a68-a5e8-07da56a129f4",
+    "chatId": "5670aac2-1d1b-4ab7-b797-223b30225506",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "content": "woohoo",
+    "type": "text",
+    "createdAt": "2026-07-17T12:47:28.381Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": "cb1f610b-33d5-4391-8dc6-849db8ccd83a",
+    "reactions": [],
+    "pinned": false
+  }
+]

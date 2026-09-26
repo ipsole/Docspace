@@ -1,0 +1,21 @@
+{
+  "serverName": "DocSpace",
+  "allowRegistration": true,
+  "maxUploadSizeMb": 50,
+  "allowedMimeTypes": [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "video/mp4",
+    "video/webm",
+    "audio/mpeg",
+    "audio/wav",
+    "application/zip",
+    "application/x-zip-compressed",
+    "text/plain",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ]
+}

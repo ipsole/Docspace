@@ -2173,7 +2173,7 @@ export default function ChatsPage() {
             if (!document.hidden && activeConvIdRef.current === currentChatId) {
               fetchMessages(currentChatId, false, true);
             }
-          }, 900);
+          }, 3500);
         }
       });
     } catch {
@@ -2182,7 +2182,7 @@ export default function ChatsPage() {
         if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }, 900);
+      }, 3500);
     }
 
     const handleFocus = () => {

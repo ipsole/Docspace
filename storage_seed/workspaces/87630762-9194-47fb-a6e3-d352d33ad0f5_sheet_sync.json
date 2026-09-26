@@ -1,0 +1,25 @@
+{
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "sheetUrl": "https://docs.google.com/spreadsheets/d/1a0Xaf42WlDlA4tt4emgEp7ECpknC4a7pBfmtgJjwMe0/edit?gid=0#gid=0",
+  "webhookUrl": "https://script.google.com/macros/s/AKfycbzFdW-HHIXg-Ur18mu9bfwm7IPfZMjZ2TBYwxmb094iq96tiUeTOXRtarJP8MzjN7Ww-w/exec",
+  "lastClientSync": "2026-09-25T03:03:42.522Z",
+  "syncedClientIds": [
+    "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+    "1308f536-c61a-46a8-ac39-b625ab2650b6",
+    "2ec08b43-c3c2-4443-bf34-6bc1bd7fd53e",
+    "98a2cf17-67a5-4770-b6eb-41a809c80cb1",
+    "0e297e82-5c08-4707-8fd2-0a8daad7ac68",
+    "7863acf5-f49f-44cb-888d-4389146cd63f"
+  ],
+  "pendingClientChanges": {},
+  "syncedInvoiceIds": [
+    "4d342205-efff-4cdd-8924-10dfd8ef305b",
+    "48d70cf8-30cd-4f23-a9f6-1bceb10e7854",
+    "9c3a6d6f-cb43-40a9-b61d-4d87366b1f2d",
+    "af942b6b-62eb-4330-bf48-d5d3e4177a7f",
+    "dba81bdd-ad91-4b59-8239-ebd1e5a40a8e",
+    "408e403f-dd88-4b1f-91a6-353fff33c448",
+    "0ff432cb-cf9a-4db6-aa5b-71b6757e1860"
+  ],
+  "lastInvoiceSync": "2026-09-25T02:47:15.070Z"
+}

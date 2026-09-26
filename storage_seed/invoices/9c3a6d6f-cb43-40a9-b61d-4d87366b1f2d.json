@@ -1,0 +1,28 @@
+{
+  "id": "9c3a6d6f-cb43-40a9-b61d-4d87366b1f2d",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+  "invoiceNumber": "DOC-26-1033",
+  "previousInvoiceNumber": "REC-26-1125",
+  "previousInvoiceNumbers": [
+    "REC-26-1125"
+  ],
+  "status": "paid",
+  "issueDate": "2026-09-21",
+  "dueDate": "2026-10-21",
+  "items": [
+    {
+      "description": "dfsfsd",
+      "quantity": 1,
+      "unitPrice": 101,
+      "taxRate": 0
+    }
+  ],
+  "discount": 0,
+  "currency": "INR",
+  "notes": "{\"template\":\"classic\",\"docType\":\"invoice\",\"placeOfSupply\":\"Maharashtra (27)\",\"gstRate\":0,\"gstType\":\"igst\",\"advancePct\":0,\"requireAdvance\":false,\"notesText\":\"We appreciate the opportunity to work with you!\",\"clientGst\":\"sfsfdsfdsfds\",\"clientPhone\":\"ass\",\"clientEmail\":\"i@gmail.com\",\"clientAddress\":\"jaipur\",\"clientName\":\"stun ltd\",\"gstTreatment\":\"lut_export\",\"invoiceCurrency\":\"INR\",\"clientLocation\":\"international\",\"clientType\":\"individual\",\"paymentSource\":\"foreign_remittance\",\"previousInvoiceNumber\":\"REC-26-1125\",\"previousInvoiceNumbers\":[\"REC-26-1125\"]}",
+  "subtotal": 101,
+  "taxTotal": 0,
+  "total": 101,
+  "createdAt": "2026-09-21T07:13:37.610Z"
+}

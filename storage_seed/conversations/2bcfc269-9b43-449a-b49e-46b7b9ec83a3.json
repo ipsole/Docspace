@@ -1,0 +1,24 @@
+{
+  "id": "2bcfc269-9b43-449a-b49e-46b7b9ec83a3",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "name": "todo",
+  "isChannel": true,
+  "isGroup": false,
+  "avatar": null,
+  "description": null,
+  "creatorId": null,
+  "participants": [
+    "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692"
+  ],
+  "pinnedBy": [],
+  "archivedBy": [],
+  "createdAt": "2026-07-11T15:33:41.365Z",
+  "updatedAt": "2026-07-12T01:39:15.744Z",
+  "lastMessage": {
+    "createdAt": "2026-07-12T01:39:15.744Z",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "id": "7c8b1fee-9342-48fc-9514-627d7cca95d3",
+    "content": "waht is wrong with yo'"
+  },
+  "clientId": null
+}

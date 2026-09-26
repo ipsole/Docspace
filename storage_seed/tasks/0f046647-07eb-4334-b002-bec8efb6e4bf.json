@@ -1,0 +1,28 @@
+{
+  "id": "0f046647-07eb-4334-b002-bec8efb6e4bf",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "projectId": "5bb5ee67-4a50-4c8a-83e1-169a9dd55cd4",
+  "title": "New stage item",
+  "description": "",
+  "assigneeId": null,
+  "dueDate": null,
+  "priority": "medium",
+  "status": "todo",
+  "tags": [],
+  "subtasks": [],
+  "dependencies": [],
+  "timeSpentSec": 0,
+  "money": null,
+  "clientId": null,
+  "comments": [],
+  "attachments": [
+    {
+      "id": "ed7e8eea-f531-475e-bd8b-1f44fb919974",
+      "name": "2.png",
+      "url": "/api/files?name=1783841638125_e22af8e7-8813-45b3-87bb-62d9a0fe3648_2.png&type=upload",
+      "size": 2452779,
+      "mimeType": "image/png"
+    }
+  ],
+  "createdAt": "2026-07-12T07:39:13.836Z"
+}

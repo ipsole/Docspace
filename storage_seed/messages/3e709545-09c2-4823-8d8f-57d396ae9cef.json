@@ -1,0 +1,24 @@
+[
+  {
+    "id": "e5a8e981-6faf-4ea2-bd7e-a4589f96d8a3",
+    "chatId": "3e709545-09c2-4823-8d8f-57d396ae9cef",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "Shared file: mrtechcoder.zip",
+    "type": "text",
+    "createdAt": "2026-08-22T09:22:59.072Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "df7b14bc-4975-4f64-87be-b3aced2f8234",
+        "name": "mrtechcoder.zip",
+        "url": "/api/files?name=1787390579054_6cfbbd3f-b05a-414d-afd1-75f04fcff317_mrtechcoder.zip&type=upload",
+        "mimeType": "application/zip",
+        "size": 59696904
+      }
+    ],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  }
+]

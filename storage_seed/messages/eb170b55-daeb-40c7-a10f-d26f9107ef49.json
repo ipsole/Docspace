@@ -1,0 +1,38 @@
+[
+  {
+    "id": "8280a311-8d9e-4dfc-834e-e3f4905b6a70",
+    "chatId": "eb170b55-daeb-40c7-a10f-d26f9107ef49",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "hi there what;s up with you can you explain anythign right now",
+    "type": "text",
+    "createdAt": "2026-09-20T21:58:08.605Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "f3574ab6-4e96-4d34-b224-63d4eab30f15",
+    "chatId": "eb170b55-daeb-40c7-a10f-d26f9107ef49",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "Shared file: typo_video-3.mp4",
+    "type": "text",
+    "createdAt": "2026-09-24T22:03:13.648Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "eb9c5419-e4ef-486b-adf4-c73d1741ee60",
+        "name": "typo_video-3.mp4",
+        "url": "/api/files?name=1790287353504_9603aa06-d0bf-4a75-a455-ffb645230004_typo_video-3.mp4&type=uploads",
+        "mimeType": "video/mp4",
+        "size": 389572589
+      }
+    ],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  }
+]

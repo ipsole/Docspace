@@ -52,7 +52,7 @@ interface Invoice {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, workspaces, setActiveWorkspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -215,6 +215,10 @@ export default function DashboardPage() {
   }
 
   if (!activeWorkspace) {
+    if (workspaces && workspaces.length > 0) {
+      setActiveWorkspace(workspaces[0]);
+      return <SkeletonScreen />;
+    }
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="text-center max-w-sm bg-white rounded-3xl border border-gray-200 p-8 shadow-xs">

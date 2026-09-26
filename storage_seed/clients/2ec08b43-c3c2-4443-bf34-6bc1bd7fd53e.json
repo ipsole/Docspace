@@ -1,0 +1,28 @@
+{
+  "id": "2ec08b43-c3c2-4443-bf34-6bc1bd7fd53e",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "companyName": "check types",
+  "contactPerson": "dfdfd",
+  "email": "f@gmail.com",
+  "phone": "dfdfddfd",
+  "address": "afawegrdgdxxx",
+  "website": "",
+  "industry": "",
+  "status": "inactive",
+  "notes": "Converted from Lead \"video edit\"",
+  "convertedFromLead": false,
+  "profileCompleted": true,
+  "createdAt": "2026-09-21T05:49:28.393Z",
+  "avatarUrl": null,
+  "clientLocation": "domestic",
+  "clientType": "business",
+  "paymentSource": "indian_bank",
+  "invoiceCurrency": "INR",
+  "gstTreatmentOverride": null,
+  "gstNumber": "dfgfdgfd",
+  "placeOfSupply": "Chandigarh (04)",
+  "tags": [
+    "Important Client",
+    "High Ticket"
+  ]
+}

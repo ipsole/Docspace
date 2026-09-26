@@ -1,0 +1,30 @@
+[
+  {
+    "id": "4ede3103-fccd-4355-93c4-c57bc3e1793a",
+    "chatId": "d921d232-6ec8-41bf-b17d-b73feb129807",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "hi there talk to me",
+    "type": "text",
+    "createdAt": "2026-09-21T19:28:45.264Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  },
+  {
+    "id": "c434cc76-ae88-4a3f-8b35-ad8a1f376ba0",
+    "chatId": "d921d232-6ec8-41bf-b17d-b73feb129807",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "content": "yes yes it is a good work to consider right now",
+    "type": "text",
+    "createdAt": "2026-09-21T21:41:38.522Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "id": "eb170b55-daeb-40c7-a10f-d26f9107ef49",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "name": "watermark remover",
+  "isChannel": true,
+  "isGroup": false,
+  "avatar": null,
+  "description": null,
+  "creatorId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+  "participants": [
+    "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692"
+  ],
+  "pinnedBy": [],
+  "archivedBy": [],
+  "createdAt": "2026-08-08T04:50:28.044Z",
+  "updatedAt": "2026-09-25T07:46:36.157Z",
+  "lastMessage": {
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "createdAt": "2026-09-25T07:46:36.157Z",
+    "id": "fa70c6c4-4df5-414c-b9a0-8f3dc57ea75d",
+    "content": "hi there"
+  },
+  "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3"
+}

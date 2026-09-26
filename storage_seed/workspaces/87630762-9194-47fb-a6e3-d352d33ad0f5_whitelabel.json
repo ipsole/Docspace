@@ -1,0 +1,181 @@
+{
+  "columns": [
+    {
+      "id": "agency",
+      "title": "Agency",
+      "description": "Marketing, creative & web design agencies reselling Docdril white-label portals",
+      "badgeColor": "indigo",
+      "order": 0
+    },
+    {
+      "id": "partner",
+      "title": "Partner",
+      "description": "Strategic partners, resellers & software ecosystem affiliates",
+      "badgeColor": "emerald",
+      "order": 1
+    },
+    {
+      "id": "b2b",
+      "title": "B2B",
+      "description": "Direct corporate B2B enterprises & corporate client portals",
+      "badgeColor": "purple",
+      "order": 2
+    }
+  ],
+  "partners": [
+    {
+      "id": "p-1",
+      "name": "Apex Creative Agency",
+      "columnId": "partner",
+      "customDomain": "portal.apexagency.io",
+      "color": "#6366f1",
+      "pricingModel": "$499/mo + $15/seat",
+      "docdrilSharePercent": 30,
+      "commissionNotes": "30% rev-share paid monthly on subscription volume",
+      "monthlyRevenue": 2450,
+      "managedClientsCount": 18,
+      "status": "active",
+      "contactPerson": "Marcus Vance",
+      "contactEmail": "marcus@apexagency.io",
+      "contractStartDate": "2025-08-15",
+      "notes": "High-growth creative agency in NYC. 18 active brand clients.",
+      "createdAt": "2026-09-24T07:01:24.734Z",
+      "handoverClients": [
+        {
+          "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+          "clientName": "stun ltd",
+          "sharePercent": 30,
+          "projectPrice": "$3,200 / mo",
+          "scope": "Enterprise branding & client file portal"
+        },
+        {
+          "clientId": "2ec08b43-c3c2-4443-bf34-6bc1bd7fd53e",
+          "clientName": "check types",
+          "sharePercent": 25,
+          "projectPrice": "$1,800 / project",
+          "scope": "Product catalog & portal handoff"
+        }
+      ],
+      "partnershipStatement": "Apex brings retainer & creative brand clients. Apex handles branding and client onboarding; Docdril receives 30% maintenance share for technical infrastructure and white-label client portals."
+    },
+    {
+      "id": "p-3",
+      "name": "Synergy Cloud Systems",
+      "columnId": "agency",
+      "customDomain": "workspace.synergycloud.net",
+      "color": "#10b981",
+      "pricingModel": "20% Docdril / 80% Partner Split",
+      "docdrilSharePercent": 20,
+      "commissionNotes": "Docdril retains 20% tier fee per sub-account",
+      "monthlyRevenue": 4200,
+      "managedClientsCount": 2,
+      "status": "active",
+      "contactPerson": "David Kim",
+      "contactEmail": "dkim@synergycloud.net",
+      "contractStartDate": "2025-06-20",
+      "notes": "IT consulting & enterprise managed services partner.",
+      "createdAt": "2026-09-24T07:01:24.734Z",
+      "handoverClients": [
+        {
+          "clientId": "1308f536-c61a-46a8-ac39-b625ab2650b6",
+          "clientName": "test",
+          "sharePercent": 20,
+          "projectPrice": "$4,200 / mo",
+          "scope": "Managed IT storage & vendor file portal"
+        },
+        {
+          "clientId": "0e297e82-5c08-4707-8fd2-0a8daad7ac68",
+          "clientName": "new1",
+          "sharePercent": 25,
+          "projectPrice": "3000/proj",
+          "scope": "dfgvdg"
+        }
+      ],
+      "partnershipStatement": "Docdril retains 20% tier fee per sub-account handed over. Synergy delivers managed IT consulting and delegates all secure document access to Docdril."
+    },
+    {
+      "id": "p-4",
+      "name": "Fintech Alliance Hub",
+      "columnId": "partner",
+      "customDomain": "portal.fintechalliance.org",
+      "color": "#f59e0b",
+      "pricingModel": "$1,250/mo Tier 2 Partner",
+      "docdrilSharePercent": 35,
+      "commissionNotes": "Docdril takes 35% on partner referrals",
+      "monthlyRevenue": 3750,
+      "managedClientsCount": 12,
+      "status": "onboarding",
+      "contactPerson": "Alisha Patel",
+      "contactEmail": "alisha@fintechalliance.org",
+      "contractStartDate": "2026-01-10",
+      "notes": "Financial services collective rolling out client portal.",
+      "createdAt": "2026-09-24T07:01:24.734Z",
+      "handoverClients": [
+        {
+          "clientId": "c-fin-1",
+          "clientName": "Horizon Capital",
+          "sharePercent": 35,
+          "projectPrice": "$3,750 / mo",
+          "scope": "Portfolio deal room & client signoff"
+        }
+      ],
+      "partnershipStatement": "Strategic referral partnership. 35% commission paid to Docdril on member firm onboardings. Multi-tenant white-label security audits included."
+    },
+    {
+      "id": "p-5",
+      "name": "Nexa Industrial Group",
+      "columnId": "b2b",
+      "customDomain": "internal.nexagroup.com",
+      "color": "#8b5cf6",
+      "pricingModel": "$2,500/mo Enterprise Tier",
+      "docdrilSharePercent": 100,
+      "commissionNotes": "100% direct SaaS revenue to Docdril",
+      "monthlyRevenue": 2500,
+      "managedClientsCount": 1,
+      "status": "active",
+      "contactPerson": "Robert Chen",
+      "contactEmail": "r.chen@nexagroup.com",
+      "contractStartDate": "2025-04-12",
+      "notes": "Direct B2B account with 420 internal vendor seats.",
+      "createdAt": "2026-09-24T07:01:24.734Z",
+      "handoverClients": [
+        {
+          "clientId": "c-nexa-1",
+          "clientName": "Nexa Global Suppliers",
+          "sharePercent": 100,
+          "projectPrice": "$2,500 / mo",
+          "scope": "Internal vendor document exchange"
+        }
+      ],
+      "partnershipStatement": "Direct enterprise B2B partner. Dedicated internal vendor portal for 400+ contractors. 100% direct SaaS contract with annual renewal."
+    },
+    {
+      "id": "p-6",
+      "name": "Quantum Health Network",
+      "columnId": "b2b",
+      "customDomain": "secure.quantumhealth.io",
+      "color": "#ec4899",
+      "pricingModel": "$1,800/mo Dedicated Cluster",
+      "docdrilSharePercent": 100,
+      "commissionNotes": "Direct enterprise tier with BAA compliance",
+      "monthlyRevenue": 1800,
+      "managedClientsCount": 1,
+      "status": "in_review",
+      "contactPerson": "Dr. Claire Hayes",
+      "contactEmail": "claire@quantumhealth.io",
+      "contractStartDate": "2026-02-01",
+      "notes": "Specialist medical group evaluating multi-clinic portal.",
+      "createdAt": "2026-09-24T07:01:24.734Z",
+      "handoverClients": [
+        {
+          "clientId": "c-qhn-1",
+          "clientName": "Regional Clinics Alliance",
+          "sharePercent": 100,
+          "projectPrice": "$1,800 / mo",
+          "scope": "Multi-clinic patient document portal"
+        }
+      ],
+      "partnershipStatement": "Specialist medical group evaluating multi-clinic portal deployment with HIPAA/BAA compliance. Custom project scope under legal review."
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "d921d232-6ec8-41bf-b17d-b73feb129807",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "name": "check types - Discussion",
+  "isChannel": true,
+  "isGroup": false,
+  "avatar": null,
+  "description": null,
+  "creatorId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+  "participants": [
+    "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692"
+  ],
+  "pinnedBy": [],
+  "archivedBy": [],
+  "createdAt": "2026-09-21T19:28:37.186Z",
+  "updatedAt": "2026-09-21T21:41:38.522Z",
+  "lastMessage": {
+    "createdAt": "2026-09-21T21:41:38.522Z",
+    "senderId": "003e108b-8e40-48b0-a14c-0114f6bcf0bb",
+    "id": "c434cc76-ae88-4a3f-8b35-ad8a1f376ba0",
+    "content": "yes yes it is a good work to consider right now"
+  },
+  "clientId": "2ec08b43-c3c2-4443-bf34-6bc1bd7fd53e"
+}

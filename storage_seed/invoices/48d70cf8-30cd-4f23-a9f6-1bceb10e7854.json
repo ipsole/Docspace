@@ -1,0 +1,29 @@
+{
+  "id": "48d70cf8-30cd-4f23-a9f6-1bceb10e7854",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": "1308f536-c61a-46a8-ac39-b625ab2650b6",
+  "invoiceNumber": "DOC-26-1031",
+  "status": "sent",
+  "issueDate": "2026-09-23",
+  "dueDate": "2026-10-23",
+  "items": [
+    {
+      "description": "testing",
+      "quantity": 1,
+      "unitPrice": 12,
+      "taxRate": 18
+    }
+  ],
+  "discount": 0,
+  "currency": "INR",
+  "notes": "{\"template\":\"classic\",\"docType\":\"invoice\",\"placeOfSupply\":\"Sikkim (11)\",\"gstRate\":18,\"gstType\":\"igst\",\"advancePct\":20,\"requireAdvance\":true,\"notesText\":\"We appreciate the opportunity to work with you!\",\"clientGst\":\"\",\"clientPhone\":\"trtrtr\",\"clientEmail\":\"fd@d.com\",\"clientAddress\":\"ertrt\",\"clientName\":\"test\",\"gstTreatment\":\"gst_applicable\",\"invoiceCurrency\":\"INR\",\"clientLocation\":\"domestic\",\"clientType\":\"individual\",\"paymentSource\":\"indian_bank\",\"previousInvoiceNumber\":\"REC-26-1125\",\"previousInvoiceNumbers\":[\"REC-26-1125\",\"PRO-26-1020\"]}",
+  "subtotal": 12,
+  "taxTotal": 2.16,
+  "total": 14.16,
+  "createdAt": "2026-09-23T22:42:20.299Z",
+  "previousInvoiceNumber": "REC-26-1125",
+  "previousInvoiceNumbers": [
+    "REC-26-1125",
+    "PRO-26-1020"
+  ]
+}

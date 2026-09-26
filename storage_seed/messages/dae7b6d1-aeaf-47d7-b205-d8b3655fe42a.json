@@ -1,0 +1,24 @@
+[
+  {
+    "id": "2a1ad57d-f98c-45a5-83cb-2faa8e663ce2",
+    "chatId": "dae7b6d1-aeaf-47d7-b205-d8b3655fe42a",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "Shared file: Screenshot_2026-07-10_at_6.27.57_PM.png",
+    "type": "text",
+    "createdAt": "2026-09-25T02:55:19.662Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [
+      {
+        "id": "761c6c5e-234f-4a25-8c33-a415753f15eb",
+        "name": "Screenshot_2026-07-10_at_6.27.57_PM.png",
+        "url": "/api/files?name=1790304917468_34b3d027-2cf8-4a5b-b78a-edc540ee4a25_Screenshot_2026-07-10_at_6.27.57_PM.png&type=uploads",
+        "mimeType": "image/png",
+        "size": 1088034
+      }
+    ],
+    "replyTo": null,
+    "reactions": [],
+    "pinned": false
+  }
+]

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { createWorkspace, listWorkspacesForUser, deleteWorkspace, listWorkspaceMembers } from '@/lib/services/workspace';
+import { createWorkspace, listWorkspacesForUser, deleteWorkspace, listWorkspaceMembers, getWorkspace } from '@/lib/services/workspace';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,7 +9,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const workspaces = await listWorkspacesForUser(user.id);
+    let workspaces = await listWorkspacesForUser(user.id);
+    if (workspaces.length === 0) {
+      const defaultWs = await getWorkspace('87630762-9194-47fb-a6e3-d352d33ad0f5');
+      if (defaultWs) workspaces = [defaultWs];
+    }
     return NextResponse.json(workspaces);
   } catch (error: any) {
     console.error('Workspaces GET error:', error);

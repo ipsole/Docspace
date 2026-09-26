@@ -1,0 +1,29 @@
+{
+  "comments": [],
+  "subtasks": [],
+  "title": "test",
+  "assigneeId": null,
+  "dependencies": [],
+  "tags": [],
+  "createdAt": "2026-09-25T02:55:37.395Z",
+  "timeSpentSec": 0,
+  "id": "3912fe1c-fbc1-4766-8f78-a39d7aa3a4b9",
+  "projectId": "9fef98b7-ba92-4271-bc7b-6584ba7d419a",
+  "status": "in_progress",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "money": 5000,
+  "priority": "high",
+  "clientId": "0e297e82-5c08-4707-8fd2-0a8daad7ac68",
+  "dueDate": "2026-09-26T16:25",
+  "dueTime": "16:25",
+  "description": "urgent",
+  "attachments": [
+    {
+      "id": "761c6c5e-234f-4a25-8c33-a415753f15eb",
+      "name": "Screenshot_2026-07-10_at_6.27.57_PM.png",
+      "url": "/api/files?name=1790304917468_34b3d027-2cf8-4a5b-b78a-edc540ee4a25_Screenshot_2026-07-10_at_6.27.57_PM.png&type=uploads",
+      "size": 1088034,
+      "mimeType": "image/png"
+    }
+  ]
+}

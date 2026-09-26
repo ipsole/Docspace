@@ -1,0 +1,67 @@
+[
+  {
+    "id": "69d9b612-d787-4846-93dd-bd535edf66ca",
+    "chatId": "0d541be1-02c8-44bd-8c76-a4b92d0875f3",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "hi there if it works well",
+    "type": "text",
+    "createdAt": "2026-07-15T04:03:28.991Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": []
+  },
+  {
+    "id": "0fba9f55-a3ce-4a96-8801-8f1dd644ba22",
+    "chatId": "0d541be1-02c8-44bd-8c76-a4b92d0875f3",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "yo",
+    "type": "text",
+    "createdAt": "2026-07-15T04:20:41.571Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": []
+  },
+  {
+    "id": "bc4bd335-e964-4566-bc6d-38e7c78ed253",
+    "chatId": "0d541be1-02c8-44bd-8c76-a4b92d0875f3",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "gdefr",
+    "type": "text",
+    "createdAt": "2026-07-15T04:21:51.737Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": null,
+    "reactions": []
+  },
+  {
+    "id": "dedaa81d-1e1d-4a04-9ba8-234ee32c9299",
+    "chatId": "0d541be1-02c8-44bd-8c76-a4b92d0875f3",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "ertr",
+    "type": "text",
+    "createdAt": "2026-07-15T04:23:32.300Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": "bc4bd335-e964-4566-bc6d-38e7c78ed253",
+    "reactions": []
+  },
+  {
+    "id": "29e4c02e-ffe2-425e-8643-1ec32766d298",
+    "chatId": "0d541be1-02c8-44bd-8c76-a4b92d0875f3",
+    "senderId": "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692",
+    "content": "testin",
+    "type": "text",
+    "createdAt": "2026-07-15T04:26:05.932Z",
+    "editedAt": null,
+    "deleted": false,
+    "attachments": [],
+    "replyTo": "69d9b612-d787-4846-93dd-bd535edf66ca",
+    "reactions": []
+  }
+]

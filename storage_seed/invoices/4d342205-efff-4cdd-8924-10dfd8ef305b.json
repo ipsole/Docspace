@@ -1,0 +1,24 @@
+{
+  "id": "4d342205-efff-4cdd-8924-10dfd8ef305b",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+  "invoiceNumber": "DOC-26-1030",
+  "status": "sent",
+  "issueDate": "2026-09-20",
+  "dueDate": "2026-10-20",
+  "items": [
+    {
+      "description": "qwwqew",
+      "quantity": 1,
+      "unitPrice": 34,
+      "taxRate": 0
+    }
+  ],
+  "discount": 0,
+  "currency": "INR",
+  "notes": "{\"template\":\"modern\",\"docType\":\"invoice\",\"placeOfSupply\":\"Maharashtra (27)\",\"gstRate\":0,\"gstType\":\"igst\",\"advancePct\":20,\"requireAdvance\":true,\"notesText\":\"We appreciate the opportunity to work with you!\",\"clientGst\":\"sfsfdsfdsfds\",\"clientPhone\":\"ass\",\"clientEmail\":\"i@gmail.com\",\"clientAddress\":\"jaipur\",\"clientName\":\"stun ltd\",\"gstTreatment\":\"lut_export\",\"invoiceCurrency\":\"INR\",\"clientLocation\":\"international\",\"clientType\":\"individual\",\"paymentSource\":\"foreign_remittance\"}",
+  "subtotal": 34,
+  "taxTotal": 0,
+  "total": 34,
+  "createdAt": "2026-09-20T21:22:54.777Z"
+}

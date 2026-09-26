@@ -1,0 +1,17 @@
+{
+  "id": "5bb5ee67-4a50-4c8a-83e1-169a9dd55cd4",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": null,
+  "name": "Web Design",
+  "description": "erferfer",
+  "status": "planning",
+  "budget": 0,
+  "progress": 0,
+  "startDate": null,
+  "endDate": null,
+  "members": [
+    "3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692"
+  ],
+  "createdAt": "2026-07-11T15:05:30.445Z",
+  "businessType": "B2B"
+}

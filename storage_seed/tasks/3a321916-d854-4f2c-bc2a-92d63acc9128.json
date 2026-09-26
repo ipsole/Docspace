@@ -1,0 +1,28 @@
+{
+  "id": "3a321916-d854-4f2c-bc2a-92d63acc9128",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "projectId": "9fef98b7-ba92-4271-bc7b-6584ba7d419a",
+  "title": "proect1",
+  "description": "fdfsdfsfsf",
+  "assigneeId": null,
+  "dueDate": "13",
+  "priority": "high",
+  "status": "in_progress",
+  "tags": [],
+  "subtasks": [],
+  "dependencies": [],
+  "timeSpentSec": 0,
+  "money": 4500,
+  "clientId": "dbb19809-6a5d-4691-a60b-96dd755f4ee3",
+  "comments": [],
+  "attachments": [
+    {
+      "id": "20722ca9-e290-416e-8881-f254167df988",
+      "name": "Copy of Artboard 3-100.jpg",
+      "url": "/api/files?name=1783918199000_0c7ba0ea-01b1-423b-b7fb-004dd5e6ad87_Copy_of_Artboard_3-100.jpg&type=upload",
+      "size": 1491318,
+      "mimeType": "image/jpeg"
+    }
+  ],
+  "createdAt": "2026-07-13T04:46:37.397Z"
+}

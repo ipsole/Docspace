@@ -4,6 +4,7 @@ import { isFirestoreEnabled, firestoreGet, firestoreSet, firestoreDelete, firest
 
 // Define the root storage directory
 export const STORAGE_ROOT = path.join(process.cwd(), 'storage');
+export const SEED_ROOT = path.join(process.cwd(), 'storage_seed');
 
 const DIRS = [
   'users',
@@ -180,6 +181,13 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
     return await fs.readFile(filePath, 'utf-8');
   } catch (error: any) {
     if (error.code === 'ENOENT' || error.code === 'EROFS') {
+      try {
+        const rel = path.relative(STORAGE_ROOT, filePath);
+        if (!rel.startsWith('..')) {
+          const seedPath = path.join(SEED_ROOT, rel);
+          return await fs.readFile(seedPath, 'utf-8');
+        }
+      } catch {}
       return null;
     }
     throw error;
@@ -375,26 +383,36 @@ export async function listUsers(): Promise<User[]> {
   }
 
   await ensureDirs();
-  const dirPath = path.join(STORAGE_ROOT, 'users');
-  const files = await fs.readdir(dirPath).catch(() => []);
-  const users: User[] = [];
-  for (const file of files) {
-    if (isJsonDataFile(file)) {
-      const content = await safeReadFile(path.join(dirPath, file));
-      if (content) {
-        try {
-          const parsed = JSON.parse(content);
-          users.push(parsed);
-          // If Firestore is enabled, sync local user to Firestore
-          if (isFirestoreEnabled() && parsed.id) {
-            firestoreSet('users', parsed.id, parsed).catch(() => {});
+  const dirsToCheck = [
+    path.join(STORAGE_ROOT, 'users'),
+    path.join(SEED_ROOT, 'users')
+  ];
+  const userMap = new Map<string, User>();
+
+  for (const dirPath of dirsToCheck) {
+    const files = await fs.readdir(dirPath).catch(() => []);
+    for (const file of files) {
+      if (isJsonDataFile(file)) {
+        const content = await safeReadFile(path.join(dirPath, file));
+        if (content) {
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.id && !userMap.has(parsed.id)) {
+              userMap.set(parsed.id, parsed);
+              // If Firestore is enabled, try syncing local user to Firestore in background
+              if (isFirestoreEnabled()) {
+                firestoreSet('users', parsed.id, parsed).catch(() => {});
+              }
+            }
+          } catch {
+            // ignore corrupted user files
           }
-        } catch {
-          // ignore corrupted user files
         }
       }
     }
   }
+
+  const users = Array.from(userMap.values());
   return users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
 }
 

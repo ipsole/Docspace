@@ -1,0 +1,25 @@
+{
+  "id": "408e403f-dd88-4b1f-91a6-353fff33c448",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": "0e297e82-5c08-4707-8fd2-0a8daad7ac68",
+  "invoiceNumber": "DOC-26-1035",
+  "status": "paid",
+  "issueDate": "2026-09-24",
+  "dueDate": "2026-10-24",
+  "items": [
+    {
+      "description": "teaser",
+      "quantity": 1,
+      "unitPrice": 163,
+      "taxRate": 18
+    }
+  ],
+  "discount": 0,
+  "currency": "INR",
+  "notes": "{\"template\":\"classic\",\"docType\":\"invoice\",\"placeOfSupply\":\"Himachal Pradesh (02)\",\"gstRate\":18,\"gstType\":\"igst\",\"advancePct\":20,\"requireAdvance\":true,\"notesText\":\"We appreciate the opportunity to work with you!\",\"clientGst\":\"fdfdfd\",\"clientPhone\":\"ee\",\"clientEmail\":\"as@ds.com\",\"clientAddress\":\"\",\"clientName\":\"new1\",\"gstTreatment\":\"gst_applicable\",\"invoiceCurrency\":\"INR\",\"clientLocation\":\"domestic\",\"clientType\":\"business\",\"paymentSource\":\"indian_bank\",\"previousInvoiceNumber\":\"\",\"previousInvoiceNumbers\":[]}",
+  "subtotal": 163,
+  "taxTotal": 29.34,
+  "total": 192.34,
+  "createdAt": "2026-09-24T09:02:02.766Z",
+  "previousInvoiceNumbers": []
+}

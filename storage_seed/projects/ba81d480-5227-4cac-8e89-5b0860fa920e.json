@@ -1,0 +1,17 @@
+{
+  "id": "ba81d480-5227-4cac-8e89-5b0860fa920e",
+  "workspaceId": "87630762-9194-47fb-a6e3-d352d33ad0f5",
+  "clientId": null,
+  "businessType": "B2B",
+  "name": "momo",
+  "description": "urgent",
+  "status": "planning",
+  "budget": 0,
+  "progress": 0,
+  "startDate": null,
+  "endDate": null,
+  "members": [
+    "003e108b-8e40-48b0-a14c-0114f6bcf0bb"
+  ],
+  "createdAt": "2026-08-13T14:09:06.478Z"
+}
