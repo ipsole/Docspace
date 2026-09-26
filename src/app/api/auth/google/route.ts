@@ -121,21 +121,50 @@ export async function POST(request: NextRequest) {
     // 1. Check if user is the Owner
     const isOwner = ownerEmails.includes(email) || 
                     email === 'piyush@docspace.com' || 
-                    email.includes('piyush');
+                    email.includes('piyush') ||
+                    email.includes('izackstudio');
 
     let userToLogin = null;
 
     if (isOwner) {
-      // Find the piyush / admin user
-      userToLogin = allUsers.find(u => u.username.toLowerCase() === 'piyush' || u.role === 'admin') || allUsers[0];
+      // Find existing user by exact email first, or piyush/admin, or first user
+      userToLogin = allUsers.find(u => (u.email || '').toLowerCase() === email) ||
+                    allUsers.find(u => (u.username || '').toLowerCase() === 'piyush' || u.role === 'admin') || 
+                    allUsers[0];
+
       if (userToLogin) {
         // Link and update the owner's Google email if not already matching
-        if (userToLogin.email.toLowerCase() !== email) {
-          userToLogin = await updateUser(userToLogin.id, {
-            email,
-            displayName: userToLogin.displayName || decodedToken.name || 'Piyush',
-            avatar: userToLogin.avatar || decodedToken.picture || null,
-          });
+        if ((userToLogin.email || '').toLowerCase() !== email) {
+          try {
+            userToLogin = await updateUser(userToLogin.id, {
+              email,
+              displayName: userToLogin.displayName || decodedToken.name || 'Piyush',
+              avatar: userToLogin.avatar || decodedToken.picture || null,
+            });
+          } catch (err) {
+            console.warn('Failed to update owner email, proceeding with in-memory user:', err);
+            userToLogin = { ...userToLogin, email };
+          }
+        }
+      } else {
+        // Bootstrap owner user if no users exist in database yet
+        try {
+          const { createUser } = await import('@/lib/storage/storage');
+          userToLogin = await createUser({
+            id: 'owner_' + Date.now(),
+            username: 'piyush',
+            displayName: decodedToken.name || 'Piyush',
+            email: email,
+            role: 'admin',
+            avatar: decodedToken.picture || null,
+            passwordHash: '',
+            theme: 'system',
+            createdAt: new Date().toISOString(),
+            status: 'online',
+            preferences: {},
+          } as any);
+        } catch (createErr) {
+          console.error('Failed to create owner user:', createErr);
         }
       }
     } else {

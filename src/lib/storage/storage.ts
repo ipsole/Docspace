@@ -335,6 +335,9 @@ export async function readUserByEmail(email: string): Promise<User | null> {
 }
 
 export async function createUser(user: User): Promise<User> {
+  if (isFirestoreEnabled()) {
+    await firestoreSet('users', user.id, user);
+  }
   const userPath = path.join(STORAGE_ROOT, 'users', `${user.id}.json`);
   await safeWriteFile(userPath, JSON.stringify(user, null, 2));
   return user;
@@ -344,19 +347,31 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   const user = await readUser(id);
   if (!user) throw new Error('User not found');
   const updatedUser = { ...user, ...updates, updatedAt: new Date().toISOString() };
+  if (isFirestoreEnabled()) {
+    await firestoreSet('users', id, updatedUser);
+  }
   const userPath = path.join(STORAGE_ROOT, 'users', `${id}.json`);
   await safeWriteFile(userPath, JSON.stringify(updatedUser, null, 2));
   return updatedUser;
 }
 
 export async function deleteUser(id: string): Promise<void> {
+  if (isFirestoreEnabled()) {
+    await firestoreDelete('users', id);
+  }
   await safeDeleteFile(path.join(STORAGE_ROOT, 'users', `${id}.json`));
 }
 
 export async function listUsers(): Promise<User[]> {
   if (isFirestoreEnabled()) {
-    const users = await firestoreList<User>('users');
-    return users.sort((a, b) => a.username.localeCompare(b.username));
+    try {
+      const users = await firestoreList<User>('users');
+      if (users && users.length > 0) {
+        return users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+      }
+    } catch (err) {
+      console.warn('Firestore listUsers failed, trying local disk fallback:', err);
+    }
   }
 
   await ensureDirs();
@@ -368,14 +383,19 @@ export async function listUsers(): Promise<User[]> {
       const content = await safeReadFile(path.join(dirPath, file));
       if (content) {
         try {
-          users.push(JSON.parse(content));
+          const parsed = JSON.parse(content);
+          users.push(parsed);
+          // If Firestore is enabled, sync local user to Firestore
+          if (isFirestoreEnabled() && parsed.id) {
+            firestoreSet('users', parsed.id, parsed).catch(() => {});
+          }
         } catch {
           // ignore corrupted user files
         }
       }
     }
   }
-  return users.sort((a, b) => a.username.localeCompare(b.username));
+  return users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
 }
 
 // SESSION DATABASE OPERATIONS
