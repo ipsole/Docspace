@@ -996,6 +996,7 @@ export default function InvoicesPage() {
   };
   
   const [creating, setCreating] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const fetchInvoices = async () => {
@@ -2482,6 +2483,90 @@ ${JSON.stringify(payload, null, 2)}
     setTimeout(restoreTitle, 10000);
 
     const html = buildInvoiceHTML(inv, previewTpl, true);
+
+    // Mobile detection: Mobile browsers (iOS Safari, Chrome Mobile) block/ignore hidden iframe print
+    const isMobile = typeof window !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      window.innerWidth < 768
+    );
+
+    if (isMobile) {
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        const mobilePrintHtml = html.replace('</head>', `
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+          <style>
+            @media screen {
+              .mobile-print-bar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 99999;
+                background: #0f172a;
+                color: #ffffff;
+                padding: 12px 16px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              }
+              .mobile-print-btn {
+                background: #4f46e5;
+                color: #ffffff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                cursor: pointer;
+              }
+              .mobile-close-btn {
+                background: rgba(255,255,255,0.15);
+                color: #ffffff;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 8px;
+                font-size: 12px;
+                cursor: pointer;
+              }
+              body {
+                padding-top: 60px !important;
+              }
+            }
+            @media print {
+              .mobile-print-bar { display: none !important; }
+              body { padding-top: 0 !important; }
+            }
+          </style>
+          </head>
+        `).replace('<body>', `
+          <body>
+            <div class="mobile-print-bar">
+              <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${docName}</span>
+              <div style="display:flex;gap:8px;">
+                <button class="mobile-print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+                <button class="mobile-close-btn" onclick="window.close()">✕</button>
+              </div>
+            </div>
+            <script>
+              window.onload = function() {
+                setTimeout(function() {
+                  try { window.print(); } catch(e){}
+                }, 400);
+              };
+            </script>
+        `);
+        printWin.document.open();
+        printWin.document.write(mobilePrintHtml);
+        printWin.document.title = docName;
+        printWin.document.close();
+        return;
+      }
+    }
+
     const pa = printAreaRef.current;
     if (!pa) return;
 
@@ -4326,20 +4411,66 @@ GSTR-1 Segregation:
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{selectedInvoice.clientName}</p>
                   </div>
 
-                  {/* Status Switcher Select */}
-                  <div className="space-y-1.5">
+                  {/* Status Switcher Custom Anchored Dropdown */}
+                  <div className="space-y-1.5 relative">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Change Status</p>
-                    <select
-                      value={selectedInvoice.status}
-                      onChange={e => handleUpdateStatus(selectedInvoice.id, e.target.value as Invoice['status'])}
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded-xl text-xs focus:outline-none"
+                    <button
+                      type="button"
+                      onClick={() => setStatusDropdownOpen(prev => !prev)}
+                      className="w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer shadow-2xs"
                     >
-                      <option value="draft">Draft</option>
-                      <option value="sent">Sent</option>
-                      <option value="paid">Paid</option>
-                      <option value="overdue">Overdue</option>
-                      <option value="void">Void</option>
-                    </select>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${
+                          selectedInvoice.status === 'paid' ? 'bg-emerald-500' :
+                          selectedInvoice.status === 'sent' ? 'bg-indigo-500' :
+                          selectedInvoice.status === 'overdue' ? 'bg-rose-500' :
+                          selectedInvoice.status === 'void' ? 'bg-slate-400' : 'bg-amber-400'
+                        }`} />
+                        <span>{STATUS_MAP[selectedInvoice.status]?.label || selectedInvoice.status}</span>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {statusDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setStatusDropdownOpen(false)}
+                        />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden p-1.5 space-y-1 animate-scale-in">
+                          {(['draft', 'sent', 'paid', 'overdue', 'void'] as Invoice['status'][]).map((st) => {
+                            const meta = STATUS_MAP[st];
+                            const isSelected = selectedInvoice.status === st;
+                            return (
+                              <button
+                                key={st}
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateStatus(selectedInvoice.id, st);
+                                  setStatusDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-850'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${
+                                    st === 'paid' ? 'bg-emerald-500' :
+                                    st === 'sent' ? 'bg-indigo-500' :
+                                    st === 'overdue' ? 'bg-rose-500' :
+                                    st === 'void' ? 'bg-slate-400' : 'bg-amber-400'
+                                  }`} />
+                                  <span>{meta.label}</span>
+                                </div>
+                                {isSelected && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Invoice Actions */}

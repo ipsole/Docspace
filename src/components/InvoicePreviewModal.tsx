@@ -11,6 +11,7 @@ import {
   Sparkles,
   Copy,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import {
   BusinessProfile,
@@ -78,6 +79,7 @@ export default function InvoicePreviewModal({
   const [copiedAi, setCopiedAi] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
   const [mobileTab, setMobileTab] = useState<'preview' | 'details'>('preview');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
 
   if (!invoice) return null;
 
@@ -360,21 +362,67 @@ ${JSON.stringify(payload, null, 2)}
               <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{resolvedInvoice.clientName}</p>
             </div>
 
-            {/* Status Switcher Select */}
+            {/* Status Switcher Custom Anchored Dropdown */}
             {onUpdateStatus && (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 relative">
                 <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Change Status</p>
-                <select
-                  value={resolvedInvoice.status}
-                  onChange={e => onUpdateStatus(resolvedInvoice.id, e.target.value)}
-                  className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setStatusDropdownOpen(prev => !prev)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer shadow-2xs"
                 >
-                  <option value="draft">Draft</option>
-                  <option value="sent">Sent</option>
-                  <option value="paid">Paid</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="void">Void</option>
-                </select>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${
+                      resolvedInvoice.status === 'paid' ? 'bg-emerald-500' :
+                      resolvedInvoice.status === 'sent' ? 'bg-indigo-500' :
+                      resolvedInvoice.status === 'overdue' ? 'bg-rose-500' :
+                      resolvedInvoice.status === 'void' ? 'bg-slate-400' : 'bg-amber-400'
+                    }`} />
+                    <span>{STATUS_MAP[resolvedInvoice.status]?.label || resolvedInvoice.status}</span>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {statusDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setStatusDropdownOpen(false)}
+                    />
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden p-1.5 space-y-1 animate-scale-in">
+                      {(['draft', 'sent', 'paid', 'overdue', 'void']).map((st) => {
+                        const meta = STATUS_MAP[st] || STATUS_MAP.draft;
+                        const isSelected = resolvedInvoice.status === st;
+                        return (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => {
+                              onUpdateStatus(resolvedInvoice.id, st);
+                              setStatusDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-850'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${
+                                st === 'paid' ? 'bg-emerald-500' :
+                                st === 'sent' ? 'bg-indigo-500' :
+                                st === 'overdue' ? 'bg-rose-500' :
+                                st === 'void' ? 'bg-slate-400' : 'bg-amber-400'
+                              }`} />
+                              <span>{meta.label}</span>
+                            </div>
+                            {isSelected && <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

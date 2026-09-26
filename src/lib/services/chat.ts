@@ -335,6 +335,55 @@ export async function editMessage(chatId: string, messageId: string, content: st
   });
 }
 
+export async function renameMessageAttachment(chatId: string, messageId: string, attachmentId: string, newName: string): Promise<Message> {
+  const convoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
+  if (!convoContent) throw new Error('Conversation not found');
+  const convo = JSON.parse(convoContent) as Conversation;
+
+  return enqueueTask('chat-messages-' + chatId, async () => {
+    const messages = await loadMessages(chatId);
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx === -1) throw new Error('Message not found');
+
+    const msg = messages[idx];
+    let renamed = false;
+    let oldName = '';
+
+    if (msg.attachments && msg.attachments.length > 0) {
+      msg.attachments = msg.attachments.map(att => {
+        if (att.id === attachmentId || att.name === attachmentId || (!att.id && msg.attachments.length === 1)) {
+          oldName = att.name;
+          renamed = true;
+          return { ...att, name: newName };
+        }
+        return att;
+      });
+    }
+
+    if (renamed) {
+      if (oldName && msg.content.includes(oldName)) {
+        msg.content = msg.content.replace(oldName, newName);
+      } else if (msg.content.startsWith('Shared file:')) {
+        msg.content = `Shared file: ${newName}`;
+      }
+      msg.editedAt = new Date().toISOString();
+
+      await safeWriteFile(path.join(MSG_DIR, `${chatId}.json`), JSON.stringify(messages, null, 2));
+
+      if (convo.lastMessage?.id === messageId) {
+        convo.lastMessage.content = msg.content;
+        await safeWriteFile(path.join(CONV_DIR, `${chatId}.json`), JSON.stringify(convo, null, 2));
+      }
+
+      const workspaceMembers = await listWorkspaceMembers(convo.workspaceId);
+      const targetParticipants = convo.isChannel ? workspaceMembers.map(m => m.userId) : convo.participants;
+      chatEmitter.emit('message_updated', { message: msg, participants: targetParticipants });
+    }
+
+    return msg;
+  });
+}
+
 export async function deleteMessage(chatId: string, messageId: string, completely: boolean = false): Promise<Message> {
   const convoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
   if (!convoContent) throw new Error('Conversation not found');

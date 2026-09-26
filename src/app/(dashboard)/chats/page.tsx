@@ -9,7 +9,7 @@ import {
   X, Phone, MoreVertical, ChevronLeft, Download, Play, Pause, StopCircle,
   AlertCircle, Bell, Building2, ExternalLink, Globe, Mail, MapPin, Users2,
   Calendar, DollarSign, ChevronRight, ChevronDown, FolderKanban, Database, Link2, Unlink,
-  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock, Check
+  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock, Check, Edit3
 } from 'lucide-react';
 
 import { uploadFile, uploadFolder } from '@/lib/uploadHelper';
@@ -261,6 +261,8 @@ export default function ChatsPage() {
     name: string;
     isFolder: boolean;
   } | null>(null);
+  const [renamingAttachment, setRenamingAttachment] = useState<{ messageId: string; attachment: Attachment } | null>(null);
+  const [renameInputName, setRenameInputName] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number } | null>(null);
   const [downloadProgresses, setDownloadProgresses] = useState<Record<string, number>>({});
   const [compressLocally, setCompressLocally] = useState(true);
@@ -1253,6 +1255,7 @@ export default function ChatsPage() {
   const executePendingUpload = async () => {
     if (!pendingUpload || !activeConv) return;
     const { files, name, isFolder } = pendingUpload;
+    const customName = name.trim();
     setPendingUpload(null);
     setSending(true);
 
@@ -1260,27 +1263,35 @@ export default function ChatsPage() {
       let data: any = null;
 
       if (isFolder) {
-        setUploadProgress({ name, percent: 0 });
-        data = await uploadFolder(files.map(f => ({ file: f.file, path: f.path || f.file.name })), name, {
+        setUploadProgress({ name: customName, percent: 0 });
+        data = await uploadFolder(files.map(f => ({ file: f.file, path: f.path || f.file.name })), customName, {
           chatId: activeConv.id,
           onProgress: (event) => {
-            setUploadProgress({ name, percent: event.percentage });
+            setUploadProgress({ name: customName, percent: event.percentage });
           }
         });
       } else {
         // Single file upload
         const file = files[0].file;
-        setUploadProgress({ name: file.name, percent: 0 });
+        setUploadProgress({ name: customName || file.name, percent: 0 });
 
         data = await uploadFile(file, {
           chatId: activeConv.id,
+          filename: customName || file.name,
           onProgress: (event) => {
-            setUploadProgress({ name: file.name, percent: event.percentage });
+            setUploadProgress({ name: customName || file.name, percent: event.percentage });
           }
         });
       }
 
       await sendChatMessageWithAttachment(data);
+
+      // Broadcast to Data Center so storage explorer updates immediately in 1 seamless flow
+      try {
+        const bc = new BroadcastChannel('docspace_storage_update');
+        bc.postMessage({ type: 'file_uploaded', filename: data.name });
+        bc.close();
+      } catch {}
     } catch (err: any) {
       console.error(err);
       alert(err.message || 'Upload failed');
@@ -1288,6 +1299,47 @@ export default function ChatsPage() {
       setSending(false);
       setUploadProgress(null);
       setZipProgress(null);
+    }
+  };
+
+  const handleRenameChatAttachment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!renamingAttachment || !activeConv || !renameInputName.trim()) return;
+    const { messageId, attachment } = renamingAttachment;
+    const newName = renameInputName.trim();
+    setRenamingAttachment(null);
+
+    // 1. Instant optimistic update in chat view
+    setMessages(prev => prev.map(msg => {
+      if (msg.id !== messageId) return msg;
+      const updatedAtts = (msg.attachments || []).map(att => att.id === attachment.id ? { ...att, name: newName } : att);
+      let updatedContent = msg.content;
+      if (attachment.name && updatedContent.includes(attachment.name)) {
+        updatedContent = updatedContent.replace(attachment.name, newName);
+      }
+      return { ...msg, attachments: updatedAtts, content: updatedContent };
+    }));
+
+    // 2. Broadcast to Data Center
+    try {
+      const bc = new BroadcastChannel('docspace_storage_update');
+      bc.postMessage({ type: 'file_renamed', oldName: attachment.name, newName });
+      bc.close();
+    } catch {}
+
+    // 3. Background server write
+    try {
+      await fetch('/api/chat/message', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: activeConv.id,
+          messageId,
+          renameAttachment: { attachmentId: attachment.id, newName }
+        })
+      });
+    } catch (err) {
+      console.error('Failed to rename attachment on server:', err);
     }
   };
 
@@ -4602,6 +4654,16 @@ export default function ChatsPage() {
                                           )}
                                           <button
                                             onClick={() => {
+                                              setRenamingAttachment({ messageId: msg.id, attachment: att });
+                                              setRenameInputName(att.name);
+                                            }}
+                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-450 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all"
+                                            title="Rename file"
+                                          >
+                                            <Edit3 className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => {
                                               setLinkingAttachment(att);
                                               if (crmProjects.length > 0) {
                                                 setSelectedProjectForLink(crmProjects[0].id);
@@ -4619,18 +4681,30 @@ export default function ChatsPage() {
                                     <div className="space-y-1.5 max-w-full overflow-hidden">
                                       <div className="flex items-center justify-between gap-2">
                                         <audio controls src={att.url} className="max-w-[180px] h-8" />
-                                        <button
-                                          onClick={() => {
-                                            setLinkingAttachment(att);
-                                            if (crmProjects.length > 0) {
-                                              setSelectedProjectForLink(crmProjects[0].id);
-                                            }
-                                          }}
-                                          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-455 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all shrink-0"
-                                          title="Link file to a Project Stage"
-                                        >
-                                          <FolderKanban className="h-3.5 w-3.5" />
-                                        </button>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            onClick={() => {
+                                              setRenamingAttachment({ messageId: msg.id, attachment: att });
+                                              setRenameInputName(att.name);
+                                            }}
+                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-455 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all shrink-0"
+                                            title="Rename file"
+                                          >
+                                            <Edit3 className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setLinkingAttachment(att);
+                                              if (crmProjects.length > 0) {
+                                                setSelectedProjectForLink(crmProjects[0].id);
+                                              }
+                                            }}
+                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-455 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all shrink-0"
+                                            title="Link file to a Project Stage"
+                                          >
+                                            <FolderKanban className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
                                       </div>
                                       <span className="text-[9px] text-slate-400 truncate block font-bold">{att.name}</span>
                                     </div>
@@ -4651,6 +4725,16 @@ export default function ChatsPage() {
                                             <Download className="h-3.5 w-3.5" />
                                           </button>
                                         )}
+                                        <button
+                                          onClick={() => {
+                                            setRenamingAttachment({ messageId: msg.id, attachment: att });
+                                            setRenameInputName(att.name);
+                                          }}
+                                          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-455 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-all"
+                                          title="Rename file"
+                                        >
+                                          <Edit3 className="h-3.5 w-3.5" />
+                                        </button>
                                         <button
                                           onClick={() => {
                                             setLinkingAttachment(att);
@@ -5929,10 +6013,23 @@ export default function ChatsPage() {
               </div>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-955/20 border border-slate-200/40 dark:border-slate-805 p-3 rounded-2xl space-y-2">
+            <div className="bg-slate-50 dark:bg-slate-955/20 border border-slate-200/40 dark:border-slate-805 p-3 rounded-2xl space-y-2.5">
               <div className="min-w-0">
-                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Name</p>
-                <p className="font-bold text-slate-850 dark:text-slate-200 truncate mt-0.5 text-xs">{pendingUpload.name}</p>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="upload-rename-input" className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">File / Item Name</label>
+                  <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-semibold">Editable</span>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all">
+                  <Edit3 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                  <input
+                    id="upload-rename-input"
+                    type="text"
+                    value={pendingUpload.name}
+                    onChange={(e) => setPendingUpload({ ...pendingUpload, name: e.target.value })}
+                    className="w-full bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
+                    placeholder="Enter file name..."
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -5959,18 +6056,66 @@ export default function ChatsPage() {
               <button
                 type="button"
                 onClick={() => setPendingUpload(null)}
-                className="flex-1 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded-xl transition-all font-bold"
+                className="flex-1 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded-xl transition-all font-bold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={executePendingUpload}
-                className="flex-1 py-2.5 bg-slate-900 hover:opacity-90 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl transition-all font-black"
+                className="flex-1 py-2.5 bg-slate-900 hover:opacity-90 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl transition-all font-black cursor-pointer shadow-sm"
               >
                 Upload & Send
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* RENAME CHAT ATTACHMENT MODAL */}
+      {renamingAttachment && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 text-xs animate-scale-in">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl flex items-center justify-center text-indigo-650 dark:text-indigo-450 shrink-0">
+                <Edit3 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">Rename File</h3>
+                <p className="text-slate-400 text-[10px] mt-0.5 truncate">Update file name across chat and storage</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleRenameChatAttachment} className="space-y-4">
+              <div>
+                <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">New File Name</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameInputName}
+                  onChange={(e) => setRenameInputName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  placeholder="e.g. document.pdf"
+                />
+              </div>
+
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setRenamingAttachment(null)}
+                  className="flex-1 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded-xl transition-all font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!renameInputName.trim()}
+                  className="flex-1 py-2.5 bg-slate-900 hover:opacity-90 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl transition-all font-black cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  Save & Sync
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

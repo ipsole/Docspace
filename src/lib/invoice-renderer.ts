@@ -478,8 +478,91 @@ export function printInvoiceDocument(
   setTimeout(restoreTitle, 10000);
 
   const html = buildInvoiceHTML(inv, style, true, businessProfile);
-  const pa = printAreaRefElement || document.body;
 
+  // Mobile detection: Mobile browsers (iOS Safari, Chrome Mobile) block/ignore hidden iframe print
+  const isMobile = typeof window !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    window.innerWidth < 768
+  );
+
+  if (isMobile) {
+    const printWin = window.open('', '_blank');
+    if (printWin) {
+      const mobilePrintHtml = html.replace('</head>', `
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+        <style>
+          @media screen {
+            .mobile-print-bar {
+              position: fixed;
+              top: 0;
+              left: 0;
+              right: 0;
+              z-index: 99999;
+              background: #0f172a;
+              color: #ffffff;
+              padding: 12px 16px;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 12px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            }
+            .mobile-print-btn {
+              background: #4f46e5;
+              color: #ffffff;
+              border: none;
+              padding: 8px 16px;
+              border-radius: 8px;
+              font-size: 13px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+            .mobile-close-btn {
+              background: rgba(255,255,255,0.15);
+              color: #ffffff;
+              border: none;
+              padding: 8px 12px;
+              border-radius: 8px;
+              font-size: 12px;
+              cursor: pointer;
+            }
+            body {
+              padding-top: 60px !important;
+            }
+          }
+          @media print {
+            .mobile-print-bar { display: none !important; }
+            body { padding-top: 0 !important; }
+          }
+        </style>
+        </head>
+      `).replace('<body>', `
+        <body>
+          <div class="mobile-print-bar">
+            <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${docName}</span>
+            <div style="display:flex;gap:8px;">
+              <button class="mobile-print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+              <button class="mobile-close-btn" onclick="window.close()">✕</button>
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                try { window.print(); } catch(e){}
+              }, 400);
+            };
+          </script>
+      `);
+      printWin.document.open();
+      printWin.document.write(mobilePrintHtml);
+      printWin.document.title = docName;
+      printWin.document.close();
+      return;
+    }
+  }
+
+  const pa = printAreaRefElement || document.body;
   const frameContainer = document.createElement('div');
   frameContainer.id = 'print-invoice-host';
   frameContainer.innerHTML = `<iframe id="pf-frame-shared" style="position:fixed;top:-10000px;left:-10000px;width:1000px;height:1400px;border:none;" srcdoc="${html.replace(/"/g, '&quot;')}"></iframe>`;

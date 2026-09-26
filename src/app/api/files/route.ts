@@ -230,8 +230,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `File type '${mimeType}' is not allowed` }, { status: 400 });
     }
 
+    const customFilename = (formData.get('filename') as string || file.name).trim();
+
     // Secure file naming
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+    const baseExt = path.extname(file.name);
+    let targetName = customFilename || file.name;
+    // Ensure file extension is retained if user omitted it
+    if (baseExt && !path.extname(targetName)) {
+      targetName = `${targetName}${baseExt}`;
+    }
+    const sanitizedName = targetName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
     const uniqueName = `${Date.now()}_${uuidv4()}_${sanitizedName}`;
 
     const subFolder = type === 'avatar' ? 'avatars' : 'uploads';

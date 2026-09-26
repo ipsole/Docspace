@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { loadConversation } from '@/lib/storage/storage';
-import { loadMessages, sendMessage, editMessage, deleteMessage, toggleReaction, pinMessage } from '@/lib/services/chat';
+import { loadMessages, sendMessage, editMessage, renameMessageAttachment, deleteMessage, toggleReaction, pinMessage } from '@/lib/services/chat';
 import { listWorkspaceMembers, getWorkspace, checkWorkspaceAccess } from '@/lib/services/workspace';
 
 // Helper to check user access to a conversation
@@ -104,7 +104,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { chatId, messageId, content, emoji, pinned } = body;
+    const { chatId, messageId, content, emoji, pinned, renameAttachment } = body;
 
     if (!chatId || !messageId) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
@@ -116,6 +116,16 @@ export async function PUT(request: NextRequest) {
     }
 
     let updatedMsg;
+
+    if (renameAttachment && renameAttachment.newName) {
+      const messages = await loadMessages(chatId);
+      const target = messages.find(m => m.id === messageId);
+      if (!target) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      }
+      updatedMsg = await renameMessageAttachment(chatId, messageId, renameAttachment.attachmentId, renameAttachment.newName.trim());
+      return NextResponse.json(updatedMsg);
+    }
 
     if (pinned !== undefined) {
       // Toggle message pin status (any participant can pin/unpin)

@@ -61,6 +61,95 @@ export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clientsCount, setClientsCount] = useState(0);
 
+  // Frame-0 cache hydration so dashboard opens instantly without skeleton flash
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        let hasAnyCache = false;
+        const cachedProj = sessionStorage.getItem('cached_projects_list');
+        if (cachedProj) {
+          setProjects(JSON.parse(cachedProj));
+          hasAnyCache = true;
+        }
+
+        const cachedInv = sessionStorage.getItem('cached_crm_invoices');
+        if (cachedInv) {
+          setInvoices(JSON.parse(cachedInv));
+          hasAnyCache = true;
+        }
+
+        const cachedClients = sessionStorage.getItem('cached_crm_clients');
+        if (cachedClients) {
+          setClientsCount(JSON.parse(cachedClients).length);
+          hasAnyCache = true;
+        }
+
+        const cachedCal = sessionStorage.getItem('cached_calendar_events');
+        if (cachedCal) {
+          setEvents(JSON.parse(cachedCal));
+        }
+
+        const cachedChats = localStorage.getItem('cached_conversations');
+        if (cachedChats) {
+          setChats(JSON.parse(cachedChats));
+        }
+
+        if (hasAnyCache) {
+          setLoading(false);
+        }
+      } catch {}
+    }
+  }, []);
+
+  // Real-time synchronization: listen for task, invoice, client updates from other pages
+  useEffect(() => {
+    let bcTask: BroadcastChannel | null = null;
+    let bcInv: BroadcastChannel | null = null;
+    let bcClient: BroadcastChannel | null = null;
+
+    try {
+      bcTask = new BroadcastChannel('docspace_task_status');
+      bcTask.onmessage = (e) => {
+        const { taskId, status } = e.data || {};
+        if (!taskId || !status) return;
+        setProjects(prev => prev.map(p => {
+          const tasks = p.tasks || [];
+          if (!tasks.some((t: any) => t.id === taskId)) return p;
+          const updatedTasks = tasks.map((t: any) => t.id === taskId ? { ...t, status } : t);
+          const completedCount = updatedTasks.filter((t: any) => t.status === 'done').length;
+          const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+          return { ...p, tasks: updatedTasks, progress };
+        }));
+      };
+    } catch {}
+
+    try {
+      bcInv = new BroadcastChannel('docspace_invoice_status');
+      bcInv.onmessage = (e) => {
+        const { invoiceId, status } = e.data || {};
+        if (!invoiceId || !status) return;
+        setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, status } : inv));
+      };
+    } catch {}
+
+    try {
+      bcClient = new BroadcastChannel('docspace_client_status');
+      bcClient.onmessage = () => {
+        // Refresh client count from session storage or silently
+        try {
+          const cachedClients = sessionStorage.getItem('cached_crm_clients');
+          if (cachedClients) setClientsCount(JSON.parse(cachedClients).length);
+        } catch {}
+      };
+    } catch {}
+
+    return () => {
+      try { bcTask?.close(); } catch {}
+      try { bcInv?.close(); } catch {}
+      try { bcClient?.close(); } catch {}
+    };
+  }, []);
+
   useEffect(() => {
     if (!activeWorkspace) {
       setLoading(false);
@@ -68,7 +157,12 @@ export default function DashboardPage() {
     }
 
     const fetchDashboardData = async () => {
-      setLoading(true);
+      const hasCachedData = typeof window !== 'undefined' && (
+        !!sessionStorage.getItem('cached_projects_list') ||
+        !!sessionStorage.getItem('cached_crm_invoices')
+      );
+      if (!hasCachedData) setLoading(true);
+
       try {
         const [projRes, chatRes, invRes, calRes, clientRes] = await Promise.all([
           fetch(`/api/projects?workspaceId=${activeWorkspace.id}`),
@@ -86,11 +180,26 @@ export default function DashboardPage() {
           clientRes.ok ? clientRes.json() : []
         ]);
 
-        setProjects(Array.isArray(projData) ? projData : []);
-        setChats(Array.isArray(chatData) ? chatData : []);
-        setInvoices(Array.isArray(invData) ? invData : []);
-        setEvents(Array.isArray(calData) ? calData : []);
-        setClientsCount(Array.isArray(clientData) ? clientData.length : 0);
+        const projs = Array.isArray(projData) ? projData : [];
+        const chatsList = Array.isArray(chatData) ? chatData : [];
+        const invs = Array.isArray(invData) ? invData : [];
+        const evts = Array.isArray(calData) ? calData : [];
+        const clCount = Array.isArray(clientData) ? clientData.length : 0;
+
+        setProjects(projs);
+        setChats(chatsList);
+        setInvoices(invs);
+        setEvents(evts);
+        setClientsCount(clCount);
+
+        try {
+          sessionStorage.setItem('cached_projects_list', JSON.stringify(projs));
+          sessionStorage.setItem('cached_crm_invoices', JSON.stringify(invs));
+          sessionStorage.setItem('cached_calendar_events', JSON.stringify(evts));
+          if (Array.isArray(clientData)) {
+            sessionStorage.setItem('cached_crm_clients', JSON.stringify(clientData));
+          }
+        } catch {}
       } catch (err) {
         console.error('Failed to load dashboard data:', err);
       } finally {

@@ -209,8 +209,8 @@ export default function StoragePage() {
   const [isFolderRename, setIsFolderRename] = useState(false);
 
   // 1. Fetch categories, clients, projects, metadata
-  const fetchDataCenter = async () => {
-    setLoadingCategories(true);
+  const fetchDataCenter = async (silent: boolean = false) => {
+    if (!silent) setLoadingCategories(true);
     try {
       const url = activeWorkspace?.id 
         ? `/api/admin/explorer?workspaceId=${encodeURIComponent(activeWorkspace.id)}` 
@@ -222,6 +222,9 @@ export default function StoragePage() {
         setClients(data.clients || []);
         setProjects(data.projects || []);
         setMetadata(data.metadata || {});
+        try {
+          sessionStorage.setItem('cached_datacenter_overview', JSON.stringify(data));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to load storage categories', err);
@@ -231,8 +234,8 @@ export default function StoragePage() {
   };
 
   // Helper to fetch files across key folders (uploads, avatars, attachments)
-  const fetchAllFilesList = async () => {
-    setLoadingAllFiles(true);
+  const fetchAllFilesList = async (silent: boolean = false) => {
+    if (!silent) setLoadingAllFiles(true);
     try {
       const dirs = ['uploads', 'avatars', 'attachments'];
       const results = await Promise.all(
@@ -247,7 +250,11 @@ export default function StoragePage() {
           return [];
         })
       );
-      setAllFiles(results.flat());
+      const flat = results.flat();
+      setAllFiles(flat);
+      try {
+        sessionStorage.setItem('cached_datacenter_allfiles', JSON.stringify(flat));
+      } catch {}
     } catch (err) {
       console.error(err);
     } finally {
@@ -255,16 +262,61 @@ export default function StoragePage() {
     }
   };
 
+  // Hydrate instantly from session cache to avoid blank loading states
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedOverview = sessionStorage.getItem('cached_datacenter_overview');
+        if (cachedOverview) {
+          const parsed = JSON.parse(cachedOverview);
+          if (parsed.categories) setCategories(parsed.categories);
+          if (parsed.clients) setClients(parsed.clients);
+          if (parsed.projects) setProjects(parsed.projects);
+          if (parsed.metadata) setMetadata(parsed.metadata);
+          setLoadingCategories(false);
+        }
+        const cachedFiles = sessionStorage.getItem('cached_datacenter_allfiles');
+        if (cachedFiles) {
+          setAllFiles(JSON.parse(cachedFiles));
+        }
+      } catch {}
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
-      fetchDataCenter();
+      const hasCached = typeof window !== 'undefined' && !!sessionStorage.getItem('cached_datacenter_overview');
+      fetchDataCenter(hasCached);
     }
   }, [user, activeWorkspace?.id]);
+
+  // Real-time synchronization: listen for file uploads or renames from chats
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('docspace_storage_update');
+      bc.onmessage = () => {
+        // Silently refresh categories and files
+        fetchDataCenter(true);
+        if (selectedGroupKey) {
+          fetchDirectoryFiles(selectedGroupKey, currentSubpath);
+        }
+        if (groupByMode !== 'directory') {
+          fetchAllFilesList(true);
+        }
+      };
+    } catch {}
+
+    return () => {
+      try { bc?.close(); } catch {}
+    };
+  }, [selectedGroupKey, currentSubpath, groupByMode]);
 
   // Load all files list when switching to non-directory view
   useEffect(() => {
     if (groupByMode !== 'directory' && user) {
-      fetchAllFilesList();
+      const hasCached = typeof window !== 'undefined' && !!sessionStorage.getItem('cached_datacenter_allfiles');
+      fetchAllFilesList(hasCached);
     }
   }, [groupByMode, user]);
 
@@ -796,6 +848,18 @@ export default function StoragePage() {
     if (!selectedGroupKey || !renameTargetName || !newTargetNameInput.trim()) return;
 
     setSavingFile(true);
+    let finalNewName = newTargetNameInput.trim();
+    if (!isFolderRename) {
+      const parts = renameTargetName.split('_');
+      if (parts.length > 2) {
+        const isTimestamp = /^\d{10,13}$/.test(parts[0]);
+        const isUuid = parts[1].length === 36 || parts[1].includes('-');
+        if (isTimestamp && isUuid) {
+          finalNewName = `${parts[0]}_${parts[1]}_${finalNewName.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
+        }
+      }
+    }
+
     try {
       const res = await fetch('/api/admin/explorer', {
         method: 'PUT',
@@ -803,7 +867,7 @@ export default function StoragePage() {
         body: JSON.stringify({
           category: selectedGroupKey,
           file: renameTargetName,
-          newName: newTargetNameInput.trim()
+          newName: finalNewName
         })
       });
       if (res.ok) {
@@ -811,11 +875,18 @@ export default function StoragePage() {
         setNewTargetNameInput('');
         
         await fetchDirectoryFiles(selectedGroupKey, currentSubpath);
-        fetchDataCenter();
+        fetchDataCenter(true);
 
         if (selectedFile === renameTargetName) {
-          setSelectedFile(newTargetNameInput.trim());
+          setSelectedFile(finalNewName);
         }
+
+        // Broadcast to other sections so renamed file reflects everywhere instantly
+        try {
+          const bc = new BroadcastChannel('docspace_storage_update');
+          bc.postMessage({ type: 'file_renamed', oldName: renameTargetName, newName: finalNewName });
+          bc.close();
+        } catch {}
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to rename');
@@ -1651,7 +1722,7 @@ export default function StoragePage() {
                                   e.stopPropagation();
                                   setIsFolderRename(isDir);
                                   setRenameTargetName(file.name);
-                                  setNewTargetNameInput(file.name);
+                                  setNewTargetNameInput(isDir ? file.name : cleanFileName(file.name));
                                   setShowRenameModal(true);
                                 }}
                                 className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-800 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0"

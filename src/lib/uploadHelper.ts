@@ -57,7 +57,12 @@ async function uploadFileNormal(
   options: UploadOptions
 ): Promise<UploadResult> {
   const formData = new FormData();
-  formData.append('file', file);
+  if (options.filename) {
+    formData.append('filename', options.filename);
+    formData.append('file', file, options.filename);
+  } else {
+    formData.append('file', file);
+  }
   if (options.chatId) {
     formData.append('chatId', options.chatId);
   }
