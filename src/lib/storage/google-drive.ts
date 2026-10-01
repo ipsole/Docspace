@@ -109,13 +109,19 @@ export async function getGDriveAccessToken(): Promise<string> {
         throw new Error('Google Drive is not connected. No refresh token found.');
       }
 
+      const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        throw new Error('Google Drive environment variables (GOOGLE_DRIVE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET) are missing on the server. Please add them to your Vercel Environment Variables.');
+      }
+
       const res = await fetch(TOKEN_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           refresh_token: config.refreshToken,
-          client_id:     process.env.GOOGLE_DRIVE_CLIENT_ID!,
-          client_secret: process.env.GOOGLE_DRIVE_CLIENT_SECRET!,
+          client_id:     clientId,
+          client_secret: clientSecret,
           grant_type:    'refresh_token',
         }),
       });
