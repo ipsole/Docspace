@@ -118,59 +118,24 @@ export async function POST(request: NextRequest) {
 
     const allUsers = await listUsers();
 
-    const MASTER_OWNER_ID = '3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692';
-
     // 1. Check if user is the Owner
     const isOwner = ownerEmails.includes(email) || 
                     email === 'piyush@docspace.com' || 
-                    email.includes('piyush') ||
-                    email.includes('izackstudio');
+                    email.includes('piyush');
 
     let userToLogin = null;
 
     if (isOwner) {
-      // Find existing user by exact email first, or master ID, or piyush/admin, or first user
-      userToLogin = allUsers.find(u => (u.email || '').toLowerCase() === email) ||
-                    allUsers.find(u => u.id === MASTER_OWNER_ID) ||
-                    allUsers.find(u => (u.username || '').toLowerCase() === 'piyush' || u.role === 'admin') || 
-                    allUsers[0];
-
+      // Find the piyush / admin user
+      userToLogin = allUsers.find(u => u.username.toLowerCase() === 'piyush' || u.role === 'admin') || allUsers[0];
       if (userToLogin) {
         // Link and update the owner's Google email if not already matching
-        if ((userToLogin.email || '').toLowerCase() !== email) {
-          try {
-            userToLogin = await updateUser(userToLogin.id, {
-              email,
-              displayName: userToLogin.displayName || decodedToken.name || 'Piyush',
-              avatar: userToLogin.avatar || decodedToken.picture || null,
-            });
-          } catch (err) {
-            console.warn('Failed to update owner email, proceeding with in-memory user:', err);
-            userToLogin = { ...userToLogin, email };
-          }
-        }
-      } else {
-        // Master Owner fallback: always use the fixed MASTER_OWNER_ID so all workspace memberships and data match!
-        userToLogin = {
-          id: MASTER_OWNER_ID,
-          username: 'piyush',
-          displayName: decodedToken.name || 'Piyush',
-          email: email,
-          role: 'admin',
-          avatar: decodedToken.picture || '/api/files?name=1783654215493_609d19db-a97a-492a-b7e5-e8d93487c2fc.jpeg&type=avatar',
-          passwordHash: '',
-          theme: 'system',
-          createdAt: '2026-07-10T03:23:32.933Z',
-          lastSeen: new Date().toISOString(),
-          status: 'online',
-          preferences: {},
-        } as any;
-
-        try {
-          const { createUser } = await import('@/lib/storage/storage');
-          await createUser(userToLogin);
-        } catch (createErr) {
-          console.warn('Could not persist owner user (proceeding with master user):', createErr);
+        if (userToLogin.email.toLowerCase() !== email) {
+          userToLogin = await updateUser(userToLogin.id, {
+            email,
+            displayName: userToLogin.displayName || decodedToken.name || 'Piyush',
+            avatar: userToLogin.avatar || decodedToken.picture || null,
+          });
         }
       }
     } else {
@@ -179,38 +144,9 @@ export async function POST(request: NextRequest) {
 
       // Support Arushi's work email and username explicitly
       if (!userToLogin && (email === 'arushibh.work@gmail.com' || email.includes('arushibh') || email.startsWith('arushi'))) {
-        userToLogin = allUsers.find(u => u.username.toLowerCase() === 'arushi' || u.id === '003e108b-8e40-48b0-a14c-0114f6bcf0bb') || {
-          id: '003e108b-8e40-48b0-a14c-0114f6bcf0bb',
-          username: 'arushi',
-          displayName: decodedToken.name || 'Arushi',
-          email,
-          role: 'user',
-          avatar: decodedToken.picture || null,
-          passwordHash: '',
-          theme: 'system',
-          createdAt: '2026-07-10T03:26:06.944Z',
-          status: 'online',
-          preferences: {},
-        } as any;
+        userToLogin = allUsers.find(u => u.username.toLowerCase() === 'arushi');
       }
       
-      // Support xitpiyu explicitly
-      if (!userToLogin && (email === 'xitpiyu@gmail.com' || email.includes('xitpiyu'))) {
-        userToLogin = allUsers.find(u => u.username.toLowerCase() === 'xitpiyu' || u.id === 'user-1790291042760-lg1qo') || {
-          id: 'user-1790291042760-lg1qo',
-          username: 'xitpiyu',
-          displayName: decodedToken.name || 'Chatbot',
-          email,
-          role: 'user',
-          avatar: decodedToken.picture || null,
-          passwordHash: '',
-          theme: 'system',
-          createdAt: '2026-09-24T23:04:02.760Z',
-          status: 'online',
-          preferences: {},
-        } as any;
-      }
-
       // Also check if any user has this username matching the email prefix
       if (!userToLogin) {
         const usernamePrefix = email.split('@')[0];
@@ -219,14 +155,12 @@ export async function POST(request: NextRequest) {
 
       if (userToLogin) {
         // Link email and preserve custom avatar
-        if ((userToLogin.email || '').toLowerCase() !== email) {
-          try {
-            userToLogin = await updateUser(userToLogin.id, {
-              email,
-              displayName: userToLogin.displayName || decodedToken.name || userToLogin.username,
-              avatar: userToLogin.avatar || decodedToken.picture || null,
-            });
-          } catch {}
+        if (userToLogin.email.toLowerCase() !== email) {
+          userToLogin = await updateUser(userToLogin.id, {
+            email,
+            displayName: userToLogin.displayName || decodedToken.name || userToLogin.username,
+            avatar: userToLogin.avatar || decodedToken.picture || null,
+          });
         }
       }
     }

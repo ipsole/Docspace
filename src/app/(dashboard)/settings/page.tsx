@@ -9,11 +9,19 @@ import {
   Settings, User, Bell, Shield, Users, Trash2,
   Save, Loader2, Check, Eye, EyeOff, LogOut, AlertCircle, Camera, Database,
   Plus, Edit2, X, CheckCircle2, ShieldCheck, UserPlus, Search, Lock, SlidersHorizontal, Mail,
-  AlertTriangle, ShieldAlert
+  AlertTriangle, ShieldAlert, Cloud, RefreshCw, ExternalLink, Folder, FolderPlus, FileText, HardDrive
 } from 'lucide-react';
 import StorageRecordsSection from '@/components/StorageRecordsSection';
 
-type SettingsTab = 'profile' | 'workspace' | 'data-records' | 'notifications' | 'security';
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+type SettingsTab = 'profile' | 'workspace' | 'data-records' | 'notifications' | 'security' | 'storage';
 
 interface WorkspaceMemberRow {
   id: string;
@@ -149,6 +157,34 @@ export default function SettingsPage() {
   const [updatingMember, setUpdatingMember] = useState(false);
   const [editMemberError, setEditMemberError] = useState<string | null>(null);
 
+  // Google Drive storage state
+  const [gdriveConfig, setGdriveConfig] = useState<{
+    connected: boolean;
+    status: string;
+    connectedAt?: string;
+    connectedByEmail?: string;
+    folders?: Record<string, string>;
+    rootFolderId?: string;
+    quota?: {
+      usageBytes: number;
+      limitBytes: number | null;
+      usageInDriveBytes: number;
+      usageInTrashBytes: number;
+      user?: { displayName?: string; emailAddress?: string; photoLink?: string };
+    };
+  } | null>(null);
+  const [gdriveLoading, setGdriveLoading] = useState(false);
+  const [gdriveConnecting, setGdriveConnecting] = useState(false);
+  const [gdriveMsg, setGdriveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [gdriveFoldersList, setGdriveFoldersList] = useState<any[]>([]);
+  const [loadingDriveFolders, setLoadingDriveFolders] = useState(false);
+  const [showCreateDriveFolderModal, setShowCreateDriveFolderModal] = useState(false);
+  const [newDriveFolderName, setNewDriveFolderName] = useState('');
+  const [creatingDriveFolder, setCreatingDriveFolder] = useState(false);
+  const [gdriveFilesList, setGdriveFilesList] = useState<any[]>([]);
+  const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
+  const [deletingDriveItem, setDeletingDriveItem] = useState<string | null>(null);
+
   useEffect(() => {
     setUsername(user?.username ?? '');
     setDisplayName(user?.displayName ?? '');
@@ -161,6 +197,160 @@ export default function SettingsPage() {
     setWsName(activeWorkspace?.name ?? '');
     fetchMembers();
   }, [activeWorkspace]);
+
+  const fetchDriveFolders = async () => {
+    setLoadingDriveFolders(true);
+    try {
+      const res = await fetch('/api/storage/google/folders');
+      if (res.ok) {
+        const data = await res.json();
+        setGdriveFoldersList(data.folders || []);
+      }
+    } catch {}
+    finally {
+      setLoadingDriveFolders(false);
+    }
+  };
+
+  const fetchDriveFiles = async () => {
+    setLoadingDriveFiles(true);
+    try {
+      const res = await fetch('/api/storage/google/files');
+      if (res.ok) {
+        const data = await res.json();
+        setGdriveFilesList(data.files || []);
+      }
+    } catch {}
+    finally {
+      setLoadingDriveFiles(false);
+    }
+  };
+
+  // Fetch GDrive status and folders when storage tab becomes active
+  useEffect(() => {
+    if (activeTab !== 'storage') return;
+    setGdriveLoading(true);
+    fetch('/api/storage/google/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        setGdriveConfig(data);
+        if (data?.connected) {
+          fetchDriveFolders();
+          fetchDriveFiles();
+        }
+      })
+      .catch(() => {})
+      .finally(() => setGdriveLoading(false));
+  }, [activeTab]);
+
+  const handleCreateDriveFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDriveFolderName.trim()) return;
+    setCreatingDriveFolder(true);
+    setGdriveMsg(null);
+    try {
+      const res = await fetch('/api/storage/google/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newDriveFolderName.trim() }),
+      });
+      if (res.ok) {
+        setNewDriveFolderName('');
+        setShowCreateDriveFolderModal(false);
+        setGdriveMsg({ type: 'success', text: `Folder "${newDriveFolderName.trim()}" created in Google Drive!` });
+        await fetchDriveFolders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setGdriveMsg({ type: 'error', text: err.error || 'Failed to create folder' });
+      }
+    } catch (err: any) {
+      setGdriveMsg({ type: 'error', text: err.message || 'Failed to create folder' });
+    } finally {
+      setCreatingDriveFolder(false);
+    }
+  };
+
+  const handleDeleteDriveFolder = async (folderId: string, folderName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the folder "${folderName}" and its contents from Google Drive? This cannot be undone.`)) return;
+    setDeletingDriveItem(folderId);
+    setGdriveMsg(null);
+    try {
+      const res = await fetch(`/api/storage/google/folders?folderId=${encodeURIComponent(folderId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setGdriveMsg({ type: 'success', text: `Folder "${folderName}" deleted from Google Drive.` });
+        await fetchDriveFolders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setGdriveMsg({ type: 'error', text: err.error || 'Failed to delete folder' });
+      }
+    } catch (err: any) {
+      setGdriveMsg({ type: 'error', text: err.message || 'Failed to delete folder' });
+    } finally {
+      setDeletingDriveItem(null);
+    }
+  };
+
+  const handleDeleteDriveFile = async (fileRecordId: string, driveFileId: string, fileName: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${fileName}" from Google Drive?`)) return;
+    setDeletingDriveItem(fileRecordId || driveFileId);
+    setGdriveMsg(null);
+    try {
+      const res = await fetch(`/api/storage/google/files?id=${encodeURIComponent(fileRecordId)}&driveFileId=${encodeURIComponent(driveFileId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setGdriveMsg({ type: 'success', text: `File "${fileName}" deleted from Google Drive.` });
+        await fetchDriveFiles();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setGdriveMsg({ type: 'error', text: err.error || 'Failed to delete file' });
+      }
+    } catch (err: any) {
+      setGdriveMsg({ type: 'error', text: err.message || 'Failed to delete file' });
+    } finally {
+      setDeletingDriveItem(null);
+    }
+  };
+
+  // Read OAuth result from URL query params after redirect back from Google
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tab    = params.get('tab');
+    const status = params.get('status');
+    const reason = params.get('reason');
+    if (tab === 'storage') {
+      setActiveTab('storage');
+      if (status === 'connected') {
+        setGdriveMsg({ type: 'success', text: 'Google Drive connected successfully!' });
+      } else if (status === 'error') {
+        setGdriveMsg({ type: 'error', text: `Connection failed: ${reason ?? 'unknown error'}` });
+      }
+      // Clean query string without reload
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+    }
+  }, []);
+
+  const handleConnectGoogleDrive = async () => {
+    setGdriveConnecting(true);
+    setGdriveMsg(null);
+    try {
+      const res = await fetch('/api/storage/google/connect');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? 'Failed to get authorization URL');
+      }
+      const { authUrl } = await res.json();
+      // Navigate browser to Google consent screen
+      window.location.href = authUrl;
+    } catch (err: any) {
+      setGdriveMsg({ type: 'error', text: err.message ?? 'Could not initiate Drive connection' });
+      setGdriveConnecting(false);
+    }
+  };
 
   const fetchMembers = async () => {
     if (!activeWorkspace) return;
@@ -583,6 +773,7 @@ export default function SettingsPage() {
     { id: 'profile',       label: 'Profile',                icon: <User className="h-4 w-4" /> },
     { id: 'workspace',     label: 'Workspace',              icon: <Users className="h-4 w-4" />, requiresSettingsAccess: true },
     { id: 'data-records',  label: 'Data & Storage Records', icon: <Database className="h-4 w-4" />, requiresSettingsAccess: true },
+    { id: 'storage',       label: 'Cloud Storage',          icon: <Cloud className="h-4 w-4" />, requiresSettingsAccess: true },
     { id: 'notifications', label: 'Notifications',          icon: <Bell className="h-4 w-4" /> },
     { id: 'security',      label: 'Security',               icon: <Shield className="h-4 w-4" /> },
   ];
@@ -1222,6 +1413,348 @@ export default function SettingsPage() {
       {/* Data Records & Storage Locations Tab */}
       {activeTab === 'data-records' && (
         <StorageRecordsSection />
+      )}
+
+      {/* Cloud Storage Tab — Google Drive central connection */}
+      {activeTab === 'storage' && (
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 shrink-0">
+                <Cloud className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Google Drive Storage</h2>
+                <p className="text-[10px] text-slate-400 mt-0.5">One central Drive account shared across Docspace. All users can upload to it.</p>
+              </div>
+            </div>
+
+            {/* Feedback message */}
+            {gdriveMsg && (
+              <div className={`flex items-start gap-2.5 p-3 rounded-xl mb-4 text-xs font-medium ${
+                gdriveMsg.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                  : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+              }`}>
+                {gdriveMsg.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" /> : <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+                {gdriveMsg.text}
+              </div>
+            )}
+
+            {/* Status card */}
+            {gdriveLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400 py-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Checking connection & quota…
+              </div>
+            ) : gdriveConfig?.connected ? (
+              <div className="space-y-6">
+                {/* Connection Banner */}
+                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-emerald-800 dark:text-emerald-200">Google Drive Connected</p>
+                      <p className="text-[10px] text-emerald-600/90 dark:text-emerald-400/90 mt-0.5 truncate">
+                        Account: <span className="font-semibold">{gdriveConfig.connectedByEmail || gdriveConfig.quota?.user?.emailAddress || 'Connected'}</span>
+                        {gdriveConfig.quota?.user?.displayName && ` (${gdriveConfig.quota.user.displayName})`}
+                        {gdriveConfig.connectedAt && ` · Connected ${new Date(gdriveConfig.connectedAt).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                  </div>
+                  {user?.role === 'admin' && (
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogleDrive}
+                      disabled={gdriveConnecting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs shrink-0"
+                    >
+                      {gdriveConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      Reconnect
+                    </button>
+                  )}
+                </div>
+
+                {/* Storage Quota Usage Display */}
+                {gdriveConfig.quota && (
+                  <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/60 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive Storage Usage</span>
+                      </div>
+                      <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">
+                        {formatBytes(gdriveConfig.quota.usageBytes)}
+                        {gdriveConfig.quota.limitBytes ? ` / ${formatBytes(gdriveConfig.quota.limitBytes)}` : ' (Unlimited)'}
+                        {gdriveConfig.quota.limitBytes ? ` (${Math.round((gdriveConfig.quota.usageBytes / gdriveConfig.quota.limitBytes) * 100)}%)` : ''}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    {gdriveConfig.quota.limitBytes ? (
+                      <div className="w-full h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 rounded-full ${
+                            (gdriveConfig.quota.usageBytes / gdriveConfig.quota.limitBytes) > 0.9
+                              ? 'bg-rose-500'
+                              : (gdriveConfig.quota.usageBytes / gdriveConfig.quota.limitBytes) > 0.75
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, Math.max(1, Math.round((gdriveConfig.quota.usageBytes / gdriveConfig.quota.limitBytes) * 100)))}%`
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-full h-2 bg-emerald-500 rounded-full opacity-60" />
+                    )}
+
+                    <div className="flex items-center justify-between mt-2 text-[10px] text-slate-400 font-medium">
+                      <span>Drive files: {formatBytes(gdriveConfig.quota.usageInDriveBytes || gdriveConfig.quota.usageBytes)}</span>
+                      {gdriveConfig.quota.usageInTrashBytes > 0 && (
+                        <span>Trash: {formatBytes(gdriveConfig.quota.usageInTrashBytes)}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Folder Management Section */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive Folders</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Browse, open in Google Drive, or create custom folders</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateDriveFolderModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5" /> + New Folder
+                    </button>
+                  </div>
+
+                  {loadingDriveFolders ? (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 py-3">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading folders…
+                    </div>
+                  ) : gdriveFoldersList.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {gdriveFoldersList.map((folder: any) => {
+                        const isCore = folder.name?.toLowerCase() === 'docspace' || folder.name?.toLowerCase() === 'docdril storage';
+                        const isStd = folder.isStandard || isCore;
+
+                        return (
+                          <div
+                            key={folder.id}
+                            className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 rounded-2xl group hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                              <Folder className={`h-4 w-4 shrink-0 ${isCore ? 'text-indigo-500' : isStd ? 'text-emerald-500' : 'text-amber-500'}`} />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate capitalize">{folder.name}</p>
+                                <span className="text-[9px] text-slate-400 block truncate">
+                                  {isCore ? 'Central Root' : isStd ? 'Standard Folder' : 'Custom Folder'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <a
+                                href={folder.webViewLink || `https://drive.google.com/drive/folders/${folder.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg transition-all"
+                                title="Open folder in Google Drive"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                              {!isStd && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteDriveFolder(folder.id, folder.name)}
+                                  disabled={deletingDriveItem === folder.id}
+                                  className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg transition-all disabled:opacity-50 cursor-pointer"
+                                  title="Delete folder from Drive"
+                                >
+                                  {deletingDriveItem === folder.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-4 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                      No custom folders yet. Click "+ New Folder" to create one.
+                    </div>
+                  )}
+                </div>
+
+                {/* Uploaded Files Section */}
+                {gdriveFilesList.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">Files Uploaded to Google Drive</h3>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Manage and delete individual files stored in Drive</p>
+                      </div>
+                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                        {gdriveFilesList.length} files
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                      {gdriveFilesList.map((file: any) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl text-xs"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                            <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-700 dark:text-slate-300 truncate text-[11px]">{file.name}</p>
+                              <p className="text-[9px] text-slate-400">
+                                {formatBytes(file.size)} · {file.uploadedByName || file.uploadedBy || 'Team'}
+                                {file.createdAt && ` · ${new Date(file.createdAt).toLocaleDateString()}`}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {(file.googleDriveWebViewLink || file.url) && (
+                              <a
+                                href={file.googleDriveWebViewLink || file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded transition-all"
+                                title="Open in Google Drive"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDriveFile(file.id, file.googleDriveFileId, file.name)}
+                              disabled={deletingDriveItem === file.id || deletingDriveItem === file.googleDriveFileId}
+                              className="p-1 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded transition-all disabled:opacity-50 cursor-pointer"
+                              title="Delete file from Google Drive"
+                            >
+                              {deletingDriveItem === file.id || deletingDriveItem === file.googleDriveFileId ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  No Google Drive account is connected. Once connected, all Docspace users will be able to
+                  upload files directly to a shared Drive folder as an alternative to Cloudflare R2.
+                </div>
+
+                {user?.role === 'admin' ? (
+                  <div className="space-y-3">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Required environment variables</p>
+                    <div className="font-mono text-[10px] bg-slate-950 text-green-400 rounded-xl p-3.5 space-y-1">
+                      <p>GOOGLE_DRIVE_CLIENT_ID=…</p>
+                      <p>GOOGLE_DRIVE_CLIENT_SECRET=…</p>
+                      <p>GOOGLE_DRIVE_REDIRECT_URI=…/api/auth/google/callback</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogleDrive}
+                      disabled={gdriveConnecting}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+                    >
+                      {gdriveConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+                      {gdriveConnecting ? 'Redirecting to Google…' : 'Connect Google Drive'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">Only system administrators can connect a Google Drive account.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Create Drive Folder Modal */}
+          {showCreateDriveFolderModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/60 backdrop-blur-sm animate-fade-in">
+              <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 text-xs animate-scale-in">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
+                    <FolderPlus className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">New Drive Folder</h3>
+                    <p className="text-slate-400 text-[10px] mt-0.5">Creates a folder inside the Docspace central Drive</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateDriveFolder} className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Folder Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={newDriveFolderName}
+                      onChange={(e) => setNewDriveFolderName(e.target.value)}
+                      placeholder="e.g. Marketing Videos, Client Brand Kits"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateDriveFolderModal(false)}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingDriveFolder || !newDriveFolderName.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    >
+                      {creatingDriveFolder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      Create Folder
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Info card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-3">How it works</h3>
+            <ul className="space-y-2 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              <li className="flex items-start gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> Admin connects ONE Google Drive account once via OAuth.</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> Files are organized in a <strong>Docdril Storage → Docspace</strong> folder hierarchy.</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> In the chat upload dialog, users can pick between <strong>Cloudflare R2</strong> (fast, private) and <strong>Google Drive</strong> (easy sharing, large files).</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> <strong>All teammates</strong> have the facility to upload and view Drive files without needing their own Google Drive account.</li>
+              <li className="flex items-start gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> The refresh token is stored securely on the server — never exposed to the browser.</li>
+            </ul>
+          </div>
+        </div>
       )}
 
       {/* Notifications Tab */}

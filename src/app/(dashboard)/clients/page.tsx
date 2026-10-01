@@ -15,6 +15,7 @@ import { SheetConfig, FieldDiff } from '@/lib/services/sheetSyncTemplate';
 import { determineGSTTreatment, classifyClientCategory, INDIAN_STATES } from '@/lib/services/gstEngine';
 import InvoicePreviewModal from '@/components/InvoicePreviewModal';
 import { DEFAULT_BUSINESS_PROFILE, BusinessProfile } from '@/lib/invoice-renderer';
+import { emitSyncEvent, subscribeSyncEvent } from '@/lib/sync/crossTabSync';
 
 // Color definitions for client collection tags
 const TAG_COLORS: Record<string, string> = {
@@ -662,53 +663,47 @@ export default function ClientsPage() {
       } catch {}
     }
 
-    // Listen for task status changes from other pages (e.g. projects page)
-    let bc: BroadcastChannel | null = null;
-    let bcInvoice: BroadcastChannel | null = null;
-    let bcClient: BroadcastChannel | null = null;
-    try {
-      bc = new BroadcastChannel('docspace_task_status');
-      bc.onmessage = (event) => {
-        const { taskId, status } = event.data || {};
+    // Listen for real-time status changes from other pages/tabs
+    const unsubTask = subscribeSyncEvent<{ taskId: string; status: string }>(
+      'docspace_task_status',
+      ({ taskId, status }) => {
         if (!taskId || !status) return;
         setTasks(prev => {
           const updated = prev.map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
           try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(updated)); } catch {}
           return updated;
         });
-      };
-    } catch {}
+      }
+    );
 
-    try {
-      bcInvoice = new BroadcastChannel('docspace_invoice_status');
-      bcInvoice.onmessage = (event) => {
-        const { invoiceId, status } = event.data || {};
+    const unsubInvoice = subscribeSyncEvent<{ invoiceId: string; status: string }>(
+      'docspace_invoice_status',
+      ({ invoiceId, status }) => {
         if (!invoiceId || !status) return;
         setInvoices(prev => {
-          const updated = prev.map(inv => inv.id === invoiceId ? { ...inv, status } : inv);
+          const updated = prev.map(inv => inv.id === invoiceId ? { ...inv, status: status as Invoice['status'] } : inv);
           try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(updated)); } catch {}
           return updated;
         });
-      };
-    } catch {}
+      }
+    );
 
-    try {
-      bcClient = new BroadcastChannel('docspace_client_status');
-      bcClient.onmessage = (event) => {
-        const { clientId, status } = event.data || {};
+    const unsubClient = subscribeSyncEvent<{ clientId: string; status: string }>(
+      'docspace_client_status',
+      ({ clientId, status }) => {
         if (!clientId || !status) return;
         setClients(prev => {
-          const updated = prev.map(c => c.id === clientId ? { ...c, status } : c);
+          const updated = prev.map(c => c.id === clientId ? { ...c, status: status as Client['status'] } : c);
           try { sessionStorage.setItem('cached_crm_clients', JSON.stringify(updated)); } catch {}
           return updated;
         });
-      };
-    } catch {}
+      }
+    );
 
     return () => {
-      try { bc?.close(); } catch {}
-      try { bcInvoice?.close(); } catch {}
-      try { bcClient?.close(); } catch {}
+      unsubTask();
+      unsubInvoice();
+      unsubClient();
     };
   }, []);
 
@@ -1165,12 +1160,8 @@ export default function ClientsPage() {
       setPreviewingInvoice(prev => prev ? { ...prev, status: newStatus } : null);
     }
 
-    // 2. Broadcast to other open pages (invoices page, etc.)
-    try {
-      const bc = new BroadcastChannel('docspace_invoice_status');
-      bc.postMessage({ invoiceId: id, status: newStatus, workspaceId: activeWorkspace.id });
-      bc.close();
-    } catch {}
+    // 2. Synchronize across tabs, current window, and session caches
+    emitSyncEvent('docspace_invoice_status', { invoiceId: id, status: newStatus, workspaceId: activeWorkspace.id });
 
     // 3. Background server write
     try {
@@ -1309,12 +1300,8 @@ export default function ClientsPage() {
       };
     });
 
-    // 3. Broadcast to other open pages
-    try {
-      const bc = new BroadcastChannel('docspace_client_status');
-      bc.postMessage({ clientId: client.id, status: newStatus, workspaceId: activeWorkspace.id });
-      bc.close();
-    } catch {}
+    // 3. Synchronize across tabs, current window, and session caches
+    emitSyncEvent('docspace_client_status', { clientId: client.id, status: newStatus, workspaceId: activeWorkspace.id });
 
     // 4. Background server write
     try {
@@ -1824,16 +1811,15 @@ export default function ClientsPage() {
     // 1. Instant optimistic update — 0ms response
     setTasks(prev => {
       const updated = prev.map(t => t.id === taskId ? { ...t, status: nextStatus as Task['status'] } : t);
-      try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(updated)); } catch {}
       return updated;
     });
 
-    // 2. Broadcast to other open pages (projects page, etc.) for instant cross-page sync
-    try {
-      const bc = new BroadcastChannel('docspace_task_status');
-      bc.postMessage({ taskId, status: nextStatus, workspaceId: activeWorkspace.id });
-      bc.close();
-    } catch {}
+    // 2. Synchronize across tabs, current window, and session caches (projects and CRM tasks)
+    emitSyncEvent('docspace_task_status', {
+      taskId,
+      status: nextStatus,
+      workspaceId: activeWorkspace.id
+    });
 
     // 3. Single background server write — no fetchAllData
     try {

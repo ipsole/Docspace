@@ -15,6 +15,7 @@ import {
 import { uploadFile, uploadFolder } from '@/lib/uploadHelper';
 import CustomDropdown from '@/components/CustomDropdown';
 import TaskStatusDropdown from '@/components/TaskStatusDropdown';
+import { emitSyncEvent, subscribeSyncEvent, syncTaskToSessionCaches } from '@/lib/sync/crossTabSync';
 
 interface Task {
   id: string;
@@ -180,21 +181,24 @@ export default function ProjectsPage() {
       } catch {}
     }
 
-    // Listen for task status changes broadcast from other pages (e.g. clients page)
-    let bc: BroadcastChannel | null = null;
-    try {
-      bc = new BroadcastChannel('docspace_task_status');
-      bc.onmessage = (event) => {
-        const { taskId, status } = event.data || {};
+    // Listen for task & project status changes broadcast from other pages (e.g. clients page)
+    const unsubTask = subscribeSyncEvent<{ taskId: string; status: string }>(
+      'docspace_task_status',
+      ({ taskId, status }) => {
         if (!taskId || !status) return;
-        setProjects(prevProjects => prevProjects.map(proj => {
-          const tasks = proj.tasks || [];
-          if (!tasks.some(t => t.id === taskId)) return proj;
-          const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
-          const completedCount = updatedTasks.filter(t => t.status === 'done').length;
-          const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
-          return { ...proj, tasks: updatedTasks, progress };
-        }));
+        setProjects(prevProjects => {
+          const updated = prevProjects.map(proj => {
+            const tasks = proj.tasks || [];
+            if (!tasks.some(t => t.id === taskId)) return proj;
+            const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: status as Task['status'] } : t);
+            const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+            const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+            return { ...proj, tasks: updatedTasks, progress };
+          });
+          try { sessionStorage.setItem('cached_projects_list', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+
         // Also update selectedProject & selectedTask if they are open
         setSelectedProject(prev => {
           if (!prev) return null;
@@ -204,12 +208,27 @@ export default function ProjectsPage() {
           const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
           return { ...prev, tasks: updatedTasks, progress };
         });
+
         setSelectedTask(prev => prev?.id === taskId ? ({ ...prev, status: status as Task['status'] }) as Task : prev);
-      };
-    } catch {}
+      }
+    );
+
+    const unsubProject = subscribeSyncEvent<{ projectId: string; updates?: any }>(
+      'docspace_project_status',
+      ({ projectId, updates }) => {
+        if (!projectId) return;
+        setProjects(prevProjects => {
+          const updated = prevProjects.map(proj => proj.id === projectId ? { ...proj, ...(updates || {}) } : proj);
+          try { sessionStorage.setItem('cached_projects_list', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+        setSelectedProject(prev => prev?.id === projectId ? { ...prev, ...(updates || {}) } : prev);
+      }
+    );
 
     return () => {
-      try { bc?.close(); } catch {}
+      unsubTask();
+      unsubProject();
     };
   }, []);
 
@@ -610,13 +629,17 @@ export default function ProjectsPage() {
       setSelectedTask(prev => prev ? { ...prev, status: nextStatus } : null);
       setDrawerStatus(nextStatus);
     }
-    setProjects(prevProjects => prevProjects.map(proj => {
-      if (proj.id !== task.projectId) return proj;
-      const updatedTasks = (proj.tasks || []).map(t => t.id === task.id ? { ...t, status: nextStatus } : t);
-      const completedCount = updatedTasks.filter(t => t.status === 'done').length;
-      const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
-      return { ...proj, tasks: updatedTasks, progress };
-    }));
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id !== task.projectId) return proj;
+        const updatedTasks = (proj.tasks || []).map(t => t.id === task.id ? { ...t, status: nextStatus } : t);
+        const completedCount = updatedTasks.filter(t => t.status === 'done').length;
+        const progress = updatedTasks.length > 0 ? Math.round((completedCount / updatedTasks.length) * 100) : 0;
+        return { ...proj, tasks: updatedTasks, progress };
+      });
+      try { sessionStorage.setItem('cached_projects_list', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
     if (selectedProject?.id === task.projectId) {
       setSelectedProject(prev => {
         if (!prev) return null;
@@ -627,12 +650,13 @@ export default function ProjectsPage() {
       });
     }
 
-    // 2. Broadcast to other open pages (clients page, etc.) for instant cross-page sync
-    try {
-      const bc = new BroadcastChannel('docspace_task_status');
-      bc.postMessage({ taskId: task.id, status: nextStatus, workspaceId: activeWorkspace.id });
-      bc.close();
-    } catch {}
+    // 2. Synchronize across tabs, current window, and session caches (projects + CRM tasks)
+    emitSyncEvent('docspace_task_status', {
+      taskId: task.id,
+      status: nextStatus,
+      projectId: task.projectId,
+      workspaceId: activeWorkspace.id
+    });
 
     // 3. Background sync
     try {
@@ -689,18 +713,33 @@ export default function ProjectsPage() {
     if (fields.clientId !== undefined) {
       setDrawerClientId(fields.clientId || '');
     }
-    setProjects(prev => prev.map(p => {
-      if (p.id !== projId) return p;
-      return {
-        ...p,
-        tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, ...fields } : t)
-      };
-    }));
+    setProjects(prev => {
+      const updated = prev.map(p => {
+        if (p.id !== projId) return p;
+        return {
+          ...p,
+          tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, ...fields } : t)
+        };
+      });
+      try { sessionStorage.setItem('cached_projects_list', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
     if (selectedProject?.id === projId) {
       setSelectedProject(prev => prev ? {
         ...prev,
         tasks: (prev.tasks || []).map(t => t.id === taskId ? { ...t, ...fields } : t)
       } : null);
+    }
+
+    if (fields.status) {
+      emitSyncEvent('docspace_task_status', {
+        taskId,
+        status: fields.status,
+        projectId: projId,
+        workspaceId: activeWorkspace.id
+      });
+    } else {
+      syncTaskToSessionCaches(taskId, selectedTask.status, fields);
     }
 
     // 2. Persist in background
@@ -1693,22 +1732,7 @@ export default function ProjectsPage() {
                                       e.stopPropagation();
                                       const order: Task['status'][] = ['todo', 'in_progress', 'review', 'done'];
                                       const nextIdx = (order.indexOf(task.status) + 1) % 4;
-                                      
-                                      // Fast update status via API
-                                      setSavingTaskField(true);
-                                      try {
-                                        await fetch('/api/projects/tasks', {
-                                          method: 'PATCH',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({
-                                            id: task.id,
-                                            workspaceId: activeWorkspace.id,
-                                            status: order[nextIdx]
-                                          })
-                                        });
-                                        await fetchProjects();
-                                      } catch {}
-                                      finally { setSavingTaskField(false); }
+                                      await handleUpdateTaskStatus(task, order[nextIdx]);
                                     }}
                                     className="p-1 text-slate-400 hover:text-slate-850 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-805 rounded border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-all flex items-center gap-0.5 text-[9px]"
                                     title="Advance Stage"
@@ -1943,7 +1967,11 @@ export default function ProjectsPage() {
                       status={drawerStatus}
                       onChange={val => {
                         setDrawerStatus(val);
-                        handleUpdateTaskField({ status: val });
+                        if (selectedTask) {
+                          handleUpdateTaskStatus(selectedTask, val);
+                        } else {
+                          handleUpdateTaskField({ status: val });
+                        }
                       }}
                       className="w-full justify-between"
                     />

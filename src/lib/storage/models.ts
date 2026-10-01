@@ -242,3 +242,49 @@ export interface Settings {
   maxUploadSizeMb: number;
   allowedMimeTypes: string[];
 }
+
+// --- GOOGLE DRIVE CENTRAL STORAGE ---
+export interface GoogleDriveFolderMap {
+  docspace?: string;
+  clients?: string;
+  projects?: string;
+  assets?: string;
+  deliverables?: string;
+  attachments?: string;
+  archives?: string;
+}
+
+export interface GoogleDriveConfig {
+  connected: boolean;
+  status: 'connected' | 'disconnected' | 'revoked' | 'error';
+  connectedAt?: string;
+  connectedByEmail?: string;
+  connectedByUserId?: string;
+  rootFolderId?: string;
+  folders?: GoogleDriveFolderMap;
+  lastError?: string;
+  lastVerifiedAt?: string;
+  /** Server-side only — refresh token for the central Drive account. NEVER send to the browser. */
+  refreshToken?: string;
+}
+
+export interface GoogleDriveFileRecord {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  googleDriveFileId: string;
+  googleDriveFolderId?: string;
+  googleDriveWebViewLink?: string;
+  googleDriveDownloadLink?: string;
+  folderCategory?: 'attachments' | 'projects' | 'clients' | 'assets' | 'deliverables' | 'archives';
+  projectId?: string | null;
+  clientId?: string | null;
+  chatId?: string | null;
+  workspaceId?: string | null;
+  uploadedBy: string; // user ID
+  uploadedByName?: string;
+  createdAt: string;
+  storageProvider: 'google_drive';
+}
+

@@ -9,10 +9,10 @@ import {
   X, Phone, MoreVertical, ChevronLeft, Download, Play, Pause, StopCircle,
   AlertCircle, Bell, Building2, ExternalLink, Globe, Mail, MapPin, Users2,
   Calendar, DollarSign, ChevronRight, ChevronDown, FolderKanban, Database, Link2, Unlink,
-  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock, Check, Edit3
+  Clock, UserX, CheckCircle2, Tag, GripVertical, Lock, Check, Edit3, Cloud
 } from 'lucide-react';
 
-import { uploadFile, uploadFolder } from '@/lib/uploadHelper';
+import { uploadFile, uploadFolder, uploadToGoogleDrive } from '@/lib/uploadHelper';
 import { db } from '@/lib/firebase/client';
 import { doc, collection, onSnapshot, query, where, type Unsubscribe } from 'firebase/firestore';
 
@@ -22,6 +22,31 @@ interface Attachment {
   url: string;
   mimeType: string;
   size: number;
+  storageProvider?: 'r2' | 'google_drive';
+  googleDriveFileId?: string;
+  googleDriveWebViewLink?: string;
+}
+
+function getAttachmentDisplayUrl(att: { url: string; googleDriveFileId?: string; storageProvider?: string }): string {
+  if (!att) return '';
+  if (att.googleDriveFileId) {
+    return `/api/storage/google/files?stream=true&fileId=${encodeURIComponent(att.googleDriveFileId)}`;
+  }
+  if (att.url?.includes('drive.google.com')) {
+    const match = att.url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || att.url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (match) {
+      return `/api/storage/google/files?stream=true&fileId=${encodeURIComponent(match[1])}`;
+    }
+  }
+  return att.url;
+}
+
+function getGoogleDriveViewLink(att: { url: string; googleDriveWebViewLink?: string; googleDriveFileId?: string }): string | null {
+  if (!att) return null;
+  if (att.googleDriveWebViewLink) return att.googleDriveWebViewLink;
+  if (att.url?.includes('drive.google.com')) return att.url;
+  if (att.googleDriveFileId) return `https://drive.google.com/file/d/${att.googleDriveFileId}/view`;
+  return null;
 }
 
 interface Message {
@@ -261,9 +286,19 @@ export default function ChatsPage() {
     name: string;
     isFolder: boolean;
   } | null>(null);
+  const [uploadStorageProvider, setUploadStorageProvider] = useState<'r2' | 'google_drive'>('r2');
+  const [gdriveConnected, setGdriveConnected] = useState(false);
+  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string }[]>([]);
+  const [selectedDriveFolderId, setSelectedDriveFolderId] = useState<string>('');
   const [renamingAttachment, setRenamingAttachment] = useState<{ messageId: string; attachment: Attachment } | null>(null);
   const [renameInputName, setRenameInputName] = useState<string>('');
-  const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{
+    name: string;
+    percent: number;
+    loaded?: number;
+    total?: number;
+    provider?: 'r2' | 'google_drive';
+  } | null>(null);
   const [downloadProgresses, setDownloadProgresses] = useState<Record<string, number>>({});
   const [compressLocally, setCompressLocally] = useState(true);
   const [zipProgress, setZipProgress] = useState<number | null>(null);
@@ -322,6 +357,26 @@ export default function ChatsPage() {
   const [draggedTabId, setDraggedTabId] = useState<FilterTabId | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<FilterTabId | null>(null);
   const isDraggingTabRef = useRef(false);
+
+  // Check Google Drive connection status and load folders on mount
+  useEffect(() => {
+    fetch('/api/storage/google/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.connected) {
+          setGdriveConnected(true);
+          fetch('/api/storage/google/folders')
+            .then(r => r.ok ? r.json() : null)
+            .then(fData => {
+              if (fData?.folders && Array.isArray(fData.folders)) {
+                setDriveFolders(fData.folders.map((f: any) => ({ id: f.id, name: f.name })));
+              }
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Sync user-specific filter tab order from localStorage
   useEffect(() => {
@@ -1167,6 +1222,11 @@ export default function ChatsPage() {
 
   const sendChatMessageWithAttachment = async (data: any) => {
     if (!activeConv) return;
+    const isDrive = data.storageProvider === 'google_drive';
+    const streamUrl = isDrive && data.googleDriveFileId 
+      ? `/api/storage/google/files?stream=true&fileId=${encodeURIComponent(data.googleDriveFileId)}` 
+      : (data.streamUrl || data.url);
+
     const msgRes = await fetch('/api/chat/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1176,9 +1236,12 @@ export default function ChatsPage() {
         attachments: [{
           id: data.id || Math.random().toString(),
           name: data.name,
-          url: data.url,
+          url: streamUrl,
           mimeType: data.mimeType,
           size: data.size,
+          storageProvider: data.storageProvider || 'r2',
+          googleDriveFileId: data.googleDriveFileId,
+          googleDriveWebViewLink: data.url || data.webViewLink,
         }],
       }),
     });
@@ -1256,30 +1319,65 @@ export default function ChatsPage() {
     if (!pendingUpload || !activeConv) return;
     const { files, name, isFolder } = pendingUpload;
     const customName = name.trim();
+    const provider = uploadStorageProvider;
     setPendingUpload(null);
+    setUploadStorageProvider('r2'); // reset for next upload
     setSending(true);
 
     try {
       let data: any = null;
 
-      if (isFolder) {
-        setUploadProgress({ name: customName, percent: 0 });
+      if (provider === 'google_drive') {
+        // Google Drive — single-file only (folders not supported via Drive picker for now)
+        const file = files[0].file;
+        setUploadProgress({ name: customName || file.name, percent: 0, loaded: 0, total: file.size, provider: 'google_drive' });
+        data = await uploadToGoogleDrive(file, {
+          chatId: activeConv.id,
+          filename: customName || file.name,
+          uploadedBy: user?.id ?? 'unknown',
+          uploadedByName: user?.displayName || user?.username,
+          folderId: selectedDriveFolderId || undefined,
+          folderCategory: 'attachments',
+          onProgress: (event) => {
+            setUploadProgress({ 
+              name: customName || file.name, 
+              percent: event.percentage,
+              loaded: event.loaded,
+              total: event.total,
+              provider: 'google_drive'
+            });
+          },
+        });
+      } else if (isFolder) {
+        setUploadProgress({ name: customName, percent: 0, provider: 'r2' });
         data = await uploadFolder(files.map(f => ({ file: f.file, path: f.path || f.file.name })), customName, {
           chatId: activeConv.id,
           onProgress: (event) => {
-            setUploadProgress({ name: customName, percent: event.percentage });
+            setUploadProgress({ 
+              name: customName, 
+              percent: event.percentage,
+              loaded: event.loaded,
+              total: event.total,
+              provider: 'r2'
+            });
           }
         });
       } else {
-        // Single file upload
+        // Single file upload via R2
         const file = files[0].file;
-        setUploadProgress({ name: customName || file.name, percent: 0 });
+        setUploadProgress({ name: customName || file.name, percent: 0, loaded: 0, total: file.size, provider: 'r2' });
 
         data = await uploadFile(file, {
           chatId: activeConv.id,
           filename: customName || file.name,
           onProgress: (event) => {
-            setUploadProgress({ name: customName || file.name, percent: event.percentage });
+            setUploadProgress({ 
+              name: customName || file.name, 
+              percent: event.percentage,
+              loaded: event.loaded,
+              total: event.total,
+              provider: 'r2'
+            });
           }
         });
       }
@@ -2167,13 +2265,13 @@ export default function ChatsPage() {
           });
         }
       }, (error) => {
-        // Fallback: If client permissions restrict direct reads, activate fallback sync
+        // Fallback: If client permissions restrict direct reads, activate fallback sync with sane interval
         if (!pollTimer) {
           pollTimer = setInterval(() => {
             if (!document.hidden && activeConvIdRef.current === currentChatId) {
               fetchMessages(currentChatId, false, true);
             }
-          }, 3500);
+          }, 4000);
         }
       });
     } catch {
@@ -2182,7 +2280,7 @@ export default function ChatsPage() {
         if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }, 3500);
+      }, 4000);
     }
 
     const handleFocus = () => {
@@ -2491,12 +2589,18 @@ export default function ChatsPage() {
   const handleFileUpload = async (file: File) => {
     if (!activeConv) return;
     setSending(true);
-    setUploadProgress({ name: file.name, percent: 0 });
+    setUploadProgress({ name: file.name, percent: 0, loaded: 0, total: file.size, provider: 'r2' });
     try {
       const data = await uploadFile(file, {
         chatId: activeConv.id,
         onProgress: (event) => {
-          setUploadProgress({ name: file.name, percent: event.percentage });
+          setUploadProgress({ 
+            name: file.name, 
+            percent: event.percentage,
+            loaded: event.loaded,
+            total: event.total,
+            provider: 'r2'
+          });
         }
       });
 
@@ -4629,21 +4733,36 @@ export default function ChatsPage() {
                             {msg.attachments.map(att => {
                               const isImg = att.mimeType?.startsWith('image/');
                               const isAud = att.mimeType?.startsWith('audio/');
+                              const displayUrl = getAttachmentDisplayUrl(att);
+                              const driveLink = getGoogleDriveViewLink(att);
+
                               return (
                                 <div key={att.id} className="rounded-xl overflow-hidden border border-slate-200/40 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 p-2.5">
                                   {isImg ? (
                                     <div className="block w-full text-left">
                                       <button onClick={() => setViewingFile(att)} className="block w-full text-left">
-                                        <img src={att.url} alt={att.name} className="max-h-40 rounded-lg object-cover max-w-full hover:opacity-90 transition-opacity" />
+                                        <img src={displayUrl} alt={att.name} className="max-h-40 rounded-lg object-cover max-w-full hover:opacity-90 transition-opacity" />
                                       </button>
                                       <div className="flex items-center justify-between mt-2.5 min-w-0">
                                         <span className="text-[10px] text-slate-400 truncate block font-semibold pr-2">{att.name}</span>
                                         <div className="flex items-center gap-1 shrink-0">
+                                          {driveLink && (
+                                            <a
+                                              href={driveLink}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded transition-all flex items-center gap-1"
+                                              title="Open in Google Drive"
+                                            >
+                                              <Cloud className="h-3.5 w-3.5" />
+                                              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+                                            </a>
+                                          )}
                                           {downloadProgresses[att.id] !== undefined ? (
                                             <span className="text-[9px] font-black text-indigo-650 dark:text-indigo-400 animate-pulse px-1">{downloadProgresses[att.id]}%</span>
                                           ) : (
                                             <button
-                                              onClick={() => triggerFileDownload(att.url, att.name, att.id)}
+                                              onClick={() => triggerFileDownload(displayUrl, att.name, att.id)}
                                               draggable
                                               onDragStart={(e) => handleDragStart(e, att)}
                                               className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 rounded transition-all animate-fade-in"
@@ -4680,8 +4799,20 @@ export default function ChatsPage() {
                                   ) : isAud ? (
                                     <div className="space-y-1.5 max-w-full overflow-hidden">
                                       <div className="flex items-center justify-between gap-2">
-                                        <audio controls src={att.url} className="max-w-[180px] h-8" />
+                                        <audio controls src={displayUrl} className="max-w-[180px] h-8" />
                                         <div className="flex items-center gap-1 shrink-0">
+                                          {driveLink && (
+                                            <a
+                                              href={driveLink}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded transition-all flex items-center gap-1"
+                                              title="Open in Google Drive"
+                                            >
+                                              <Cloud className="h-3.5 w-3.5" />
+                                              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+                                            </a>
+                                          )}
                                           <button
                                             onClick={() => {
                                               setRenamingAttachment({ messageId: msg.id, attachment: att });
@@ -4712,11 +4843,23 @@ export default function ChatsPage() {
                                     <div className="flex items-center justify-between gap-3 text-[10px]">
                                       <span className="truncate font-semibold text-slate-505">{att.name}</span>
                                       <div className="flex items-center gap-1 shrink-0">
+                                        {driveLink && (
+                                          <a
+                                            href={driveLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded transition-all flex items-center gap-1"
+                                            title="Open in Google Drive"
+                                          >
+                                            <Cloud className="h-3.5 w-3.5" />
+                                            <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+                                          </a>
+                                        )}
                                         {downloadProgresses[att.id] !== undefined ? (
                                           <span className="text-[9px] font-black text-indigo-650 dark:text-indigo-400 animate-pulse px-1">{downloadProgresses[att.id]}%</span>
                                         ) : (
                                           <button
-                                            onClick={() => triggerFileDownload(att.url, att.name, att.id)}
+                                            onClick={() => triggerFileDownload(displayUrl, att.name, att.id)}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, att)}
                                             className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 rounded transition-all"
@@ -4865,22 +5008,56 @@ export default function ChatsPage() {
             )}
                     {/* Upload progress banner */}
             {(uploadProgress || zipProgress !== null) && (
-              <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-955/20 border-t border-indigo-200/50 dark:border-indigo-900/30 flex items-center gap-3 shrink-0 text-xs animate-fade-in">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
+              <div className={`px-4 py-2.5 border-t flex items-center gap-3 shrink-0 text-xs animate-fade-in ${
+                uploadProgress?.provider === 'google_drive'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-900/40'
+                  : 'bg-indigo-50 dark:bg-indigo-955/20 border-indigo-200/50 dark:border-indigo-900/30'
+              }`}>
+                <Loader2 className={`h-4 w-4 animate-spin shrink-0 ${
+                  uploadProgress?.provider === 'google_drive' ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-500'
+                }`} />
                 <div className="flex-1 min-w-0">
-                  <div className="flex justify-between font-bold text-slate-800 dark:text-slate-100">
-                    <span className="truncate">
-                      {zipProgress !== null 
-                        ? `Compressing folder locally: ${zipProgress}%`
-                        : uploadProgress?.percent === 100 
-                          ? 'Saving file on server...' 
-                          : `Uploading: ${uploadProgress?.name || ''}`}
+                  <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-100 gap-2">
+                    <span className="truncate flex items-center gap-1.5">
+                      {zipProgress !== null ? (
+                        `Compressing folder locally: ${zipProgress}%`
+                      ) : uploadProgress?.percent === 100 ? (
+                        uploadProgress.provider === 'google_drive' 
+                          ? 'Processing & storing in Google Drive...' 
+                          : 'Saving file on server...'
+                      ) : (
+                        <>
+                          <span className={`inline-block px-1.5 py-0.5 text-[10px] rounded font-semibold shrink-0 ${
+                            uploadProgress?.provider === 'google_drive'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                              : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300'
+                          }`}>
+                            {uploadProgress?.provider === 'google_drive' ? 'Google Drive' : 'Docspace'}
+                          </span>
+                          <span className="truncate">{uploadProgress?.name || 'Uploading file...'}</span>
+                        </>
+                      )}
                     </span>
-                    <span>{zipProgress !== null ? zipProgress : (uploadProgress?.percent ?? 0)}%</span>
+                    <span className="text-[11px] font-mono text-slate-600 dark:text-slate-300 shrink-0">
+                      {zipProgress !== null ? (
+                        `${zipProgress}%`
+                      ) : uploadProgress ? (
+                        <>
+                          {uploadProgress.loaded !== undefined && uploadProgress.total !== undefined && uploadProgress.total > 0 && (
+                            <span className="text-slate-500 dark:text-slate-400 mr-1.5 font-normal">
+                              {formatBytes(uploadProgress.loaded)} / {formatBytes(uploadProgress.total)} ·
+                            </span>
+                          )}
+                          <span>{uploadProgress.percent}%</span>
+                        </>
+                      ) : null}
+                    </span>
                   </div>
-                  <div className="w-full bg-slate-200 dark:bg-slate-850 h-1 rounded-full overflow-hidden mt-1.5">
+                  <div className="w-full bg-slate-200/80 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1.5">
                     <div 
-                      className={`h-full bg-indigo-650 transition-all duration-150 ${(zipProgress === 100 || uploadProgress?.percent === 100) ? 'animate-pulse' : ''}`} 
+                      className={`h-full transition-all duration-150 ${
+                        uploadProgress?.provider === 'google_drive' ? 'bg-emerald-500' : 'bg-indigo-650'
+                      } ${(zipProgress === 100 || uploadProgress?.percent === 100) ? 'animate-pulse' : ''}`} 
                       style={{ width: `${zipProgress !== null ? zipProgress : (uploadProgress?.percent ?? 0)}%` }} 
                     />
                   </div>
@@ -5537,49 +5714,82 @@ export default function ChatsPage() {
       )}
 
       {/* File viewer modal */}
-      {viewingFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/80 backdrop-blur-sm" onClick={() => setViewingFile(null)}>
-          <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setViewingFile(null)} className="absolute -top-10 right-0 p-2 text-white hover:bg-white/10 rounded-lg transition-all">
-              <X className="h-5 w-5" />
-            </button>
-            {(viewingFile.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(viewingFile.name || '')) ? (
-              <img src={viewingFile.url} alt={viewingFile.name} className="w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl" />
-            ) : (viewingFile.mimeType?.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(viewingFile.name || '')) ? (
-              <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
-                <video controls autoPlay playsInline src={viewingFile.url} className="w-full max-h-[80vh]" />
-              </div>
-            ) : (viewingFile.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(viewingFile.name || '')) ? (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl">
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-4">{viewingFile.name}</p>
-                <audio controls autoPlay src={viewingFile.url} className="w-full" />
-              </div>
-            ) : (viewingFile.mimeType === 'application/pdf' || /\.pdf$/i.test(viewingFile.name || '')) ? (
-              <div className="w-full h-[80vh] bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-2xl">
-                <iframe src={viewingFile.url} title={viewingFile.name} className="w-full h-full border-0" />
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-2xl text-center">
-                <FileText className="h-12 w-12 text-slate-450 mx-auto mb-4" />
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2">{viewingFile.name}</p>
-                {downloadProgresses[viewingFile.id] !== undefined ? (
-                  <div className="inline-flex items-center gap-2 px-4 py-2 text-indigo-650 dark:text-indigo-400 text-xs font-bold animate-pulse">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Downloading: {downloadProgresses[viewingFile.id]}%
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => triggerFileDownload(viewingFile.url, viewingFile.name, viewingFile.id)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:opacity-90 text-white dark:bg-slate-100 dark:text-slate-900 rounded-xl text-xs font-semibold transition-all"
+      {viewingFile && (() => {
+        const viewerDisplayUrl = getAttachmentDisplayUrl(viewingFile);
+        const viewerDriveLink = getGoogleDriveViewLink(viewingFile);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/80 backdrop-blur-sm" onClick={() => setViewingFile(null)}>
+            <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
+              <div className="absolute -top-10 right-0 flex items-center gap-2">
+                {viewerDriveLink && (
+                  <a
+                    href={viewerDriveLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
+                    title="Open in Google Drive"
                   >
-                    <Download className="h-3.5 w-3.5" /> Download
-                  </button>
+                    <Cloud className="h-3.5 w-3.5" /> Open in Google Drive <ExternalLink className="h-3 w-3" />
+                  </a>
                 )}
+                <button onClick={() => setViewingFile(null)} className="p-1.5 text-white hover:bg-white/10 rounded-lg transition-all">
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-            )}
+
+              {(viewingFile.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(viewingFile.name || '')) ? (
+                <div className="text-center">
+                  <img src={viewerDisplayUrl} alt={viewingFile.name} className="w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl mx-auto" />
+                </div>
+              ) : (viewingFile.mimeType?.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(viewingFile.name || '')) ? (
+                <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
+                  <video controls autoPlay playsInline src={viewerDisplayUrl} className="w-full max-h-[80vh]" />
+                </div>
+              ) : (viewingFile.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(viewingFile.name || '')) ? (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl">
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-4">{viewingFile.name}</p>
+                  <audio controls autoPlay src={viewerDisplayUrl} className="w-full" />
+                </div>
+              ) : (viewingFile.mimeType === 'application/pdf' || /\.pdf$/i.test(viewingFile.name || '')) ? (
+                <div className="w-full h-[80vh] bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-2xl">
+                  <iframe src={viewerDisplayUrl} title={viewingFile.name} className="w-full h-full border-0" />
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-2xl text-center">
+                  <FileText className="h-12 w-12 text-slate-450 mx-auto mb-4" />
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2">{viewingFile.name}</p>
+                  {downloadProgresses[viewingFile.id] !== undefined ? (
+                    <div className="inline-flex items-center gap-2 px-4 py-2 text-indigo-650 dark:text-indigo-400 text-xs font-bold animate-pulse">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Downloading: {downloadProgresses[viewingFile.id]}%
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 mt-4">
+                      <button
+                        onClick={() => triggerFileDownload(viewerDisplayUrl, viewingFile.name, viewingFile.id)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:opacity-90 text-white dark:bg-slate-100 dark:text-slate-900 rounded-xl text-xs font-semibold transition-all"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Download
+                      </button>
+                      {viewerDriveLink && (
+                        <a
+                          href={viewerDriveLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                        >
+                          <Cloud className="h-3.5 w-3.5" /> Open in Drive
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Chat Profile / Settings Modal */}
       {showChatProfileModal && activeConv && (
@@ -6051,6 +6261,63 @@ export default function ChatsPage() {
               )}
 
             </div>
+
+            {/* ── Storage provider picker ─────────────────────────────── */}
+            {gdriveConnected && !pendingUpload.isFolder && (
+              <div>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Storage Destination</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUploadStorageProvider('r2')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      uploadStorageProvider === 'r2'
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+                    }`}
+                  >
+                    <Database className="h-3.5 w-3.5" />
+                    Cloudflare R2
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadStorageProvider('google_drive')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      uploadStorageProvider === 'google_drive'
+                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                    }`}
+                  >
+                    <Cloud className="h-3.5 w-3.5" />
+                    Google Drive
+                  </button>
+                </div>
+                {uploadStorageProvider === 'google_drive' && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
+                      File will be stored in the shared Docspace Drive folder and linked in the message.
+                    </p>
+                    {driveFolders.length > 0 && (
+                      <div className="pt-1">
+                        <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Target Drive Folder</label>
+                        <select
+                          value={selectedDriveFolderId}
+                          onChange={(e) => setSelectedDriveFolderId(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                        >
+                          <option value="">📁 Attachments (Default)</option>
+                          {driveFolders.filter(f => f.name.toLowerCase() !== 'attachments' && f.name.toLowerCase() !== 'docspace' && f.name.toLowerCase() !== 'docdril storage').map(f => (
+                            <option key={f.id} value={f.id}>
+                              📁 {f.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2.5">
               <button

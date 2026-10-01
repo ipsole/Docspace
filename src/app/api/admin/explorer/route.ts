@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { STORAGE_ROOT, cleanStaleTempUploads, safeReadFile, safeWriteFile } from '@/lib/storage/storage';
 import { getCurrentUser } from '@/lib/auth';
-import { listWorkspaceMembers, listWorkspacesForUser } from '@/lib/services/workspace';
+import { listWorkspaceMembers, listWorkspacesForUser, getWorkspaceMembersRaw } from '@/lib/services/workspace';
 import { isR2Enabled, listFromR2, getFromR2, deleteFromR2 } from '@/lib/storage/r2Adapter';
 import { isFirestoreEnabled, firestoreGet, firestoreSet, firestoreDelete, firestoreListDocs } from '@/lib/storage/firestoreAdapter';
 import { getFirestoreDb } from '@/lib/firebase/admin';
@@ -37,6 +37,8 @@ const STANDARD_DIRS = [
   'backups'
 ];
 
+const explorerAccessCache = new Map<string, { allowed: boolean; expiresAt: number }>();
+
 async function checkExplorerAccess(user: any, request: NextRequest, isWrite: boolean = false): Promise<boolean> {
   if (user.role === 'admin') return true;
 
@@ -44,21 +46,36 @@ async function checkExplorerAccess(user: any, request: NextRequest, isWrite: boo
   const clientId = searchParams.get('clientId');
   if (clientId && !isWrite) return true;
 
+  const cacheKey = `${user.id}:${isWrite}`;
+  const cached = explorerAccessCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.allowed;
+  }
+
   try {
     const workspaces = await listWorkspacesForUser(user.id);
     for (const ws of workspaces) {
-      const members = await listWorkspaceMembers(ws.id);
+      const members = await getWorkspaceMembersRaw(ws.id);
       const m = members.find(mem => mem.userId === user.id);
       if (m) {
-        if (m.role === 'owner' || m.role === 'manager') return true;
+        if (m.role === 'owner' || m.role === 'manager') {
+          explorerAccessCache.set(cacheKey, { allowed: true, expiresAt: Date.now() + 30000 });
+          return true;
+        }
         const tabAccess = m.tabPermissions?.['storage'];
         if (tabAccess && tabAccess !== 'none') {
-          if (isWrite && tabAccess === 'view') return false;
+          if (isWrite && tabAccess === 'view') {
+            explorerAccessCache.set(cacheKey, { allowed: false, expiresAt: Date.now() + 30000 });
+            return false;
+          }
+          explorerAccessCache.set(cacheKey, { allowed: true, expiresAt: Date.now() + 30000 });
           return true;
         }
       }
     }
   } catch {}
+
+  explorerAccessCache.set(cacheKey, { allowed: false, expiresAt: Date.now() + 30000 });
   return false;
 }
 

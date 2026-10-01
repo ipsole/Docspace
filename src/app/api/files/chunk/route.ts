@@ -23,6 +23,13 @@ interface UploadMetadata {
   relativePath?: string;
 }
 
+function getTempUploadsDir(): string {
+  if (process.env.VERCEL) {
+    return path.join('/tmp', 'docspace_temp_uploads');
+  }
+  return path.join(STORAGE_ROOT, 'temp_uploads');
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser(request);
@@ -46,8 +53,8 @@ export async function POST(request: NextRequest) {
       const uploadId = uuidv4();
       const totalChunks = Math.ceil(totalSize / chunkSize);
 
-      const tempDir = path.join(STORAGE_ROOT, 'temp_uploads');
-      await ensureDirs();
+      const tempDir = getTempUploadsDir();
+      await ensureDirs().catch(() => {});
       await fs.mkdir(tempDir, { recursive: true });
 
       let tempFilePath = '';
@@ -99,7 +106,7 @@ export async function POST(request: NextRequest) {
       }
 
       const chunkIndex = parseInt(chunkIndexStr, 10);
-      const tempDir = path.join(STORAGE_ROOT, 'temp_uploads');
+      const tempDir = getTempUploadsDir();
       const metaFilePath = path.join(tempDir, `${uploadId}.json`);
 
       // Verify metadata exists
@@ -151,7 +158,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing uploadId' }, { status: 400 });
       }
 
-      const tempDir = path.join(STORAGE_ROOT, 'temp_uploads');
+      const tempDir = getTempUploadsDir();
       const metaFilePath = path.join(tempDir, `${uploadId}.json`);
 
       // Read metadata
@@ -197,11 +204,11 @@ export async function POST(request: NextRequest) {
       const uniqueName = `${Date.now()}_${uuidv4()}_${sanitizedName}`;
 
       const subFolder = metadata.type === 'avatar' ? 'avatars' : 'uploads';
-      const destDir = path.join(STORAGE_ROOT, subFolder);
+      const destDir = process.env.VERCEL ? path.join('/tmp', subFolder) : path.join(STORAGE_ROOT, subFolder);
       const destFilePath = path.join(destDir, uniqueName);
 
-      await ensureDirs();
-      await fs.mkdir(destDir, { recursive: true });
+      await ensureDirs().catch(() => {});
+      await fs.mkdir(destDir, { recursive: true }).catch(() => {});
 
       // Move temporary file to destination
       await fs.rename(tempFilePath, destFilePath);
@@ -247,7 +254,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing folderId or folderName' }, { status: 400 });
       }
 
-      const tempDir = path.join(STORAGE_ROOT, 'temp_uploads');
+      const tempDir = getTempUploadsDir();
       const folderPath = path.join(tempDir, folderId);
 
       // Check if folder exists
@@ -264,11 +271,11 @@ export async function POST(request: NextRequest) {
       const zipName = `${sanitizedFolderName}.zip`;
       const uniqueName = `${Date.now()}_${uuidv4()}_${zipName}`;
 
-      const destDir = path.join(STORAGE_ROOT, 'uploads');
+      const destDir = process.env.VERCEL ? path.join('/tmp', 'uploads') : path.join(STORAGE_ROOT, 'uploads');
       const zipFilePath = path.join(destDir, uniqueName);
 
-      await ensureDirs();
-      await fs.mkdir(destDir, { recursive: true });
+      await ensureDirs().catch(() => {});
+      await fs.mkdir(destDir, { recursive: true }).catch(() => {});
 
       // Spawns native macOS/Linux zip command for high efficiency stream compression
       const { exec } = require('child_process');

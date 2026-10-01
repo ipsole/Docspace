@@ -151,14 +151,6 @@ export async function listWorkspacesForUser(userId: string): Promise<Workspace[]
       }
     } catch {}
 
-    const MASTER_WS_ID = '87630762-9194-47fb-a6e3-d352d33ad0f5';
-    if (workspaces.length === 0 || userId === '3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692') {
-      const masterWs = await getWorkspace(MASTER_WS_ID);
-      if (masterWs && !workspaces.some(w => w.id === masterWs.id)) {
-        workspaces.push(masterWs);
-      }
-    }
-
     return workspaces.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
@@ -184,14 +176,6 @@ export async function listWorkspacesForUser(userId: string): Promise<Workspace[]
           // ignore parsing issues
         }
       }
-    }
-  }
-
-  const MASTER_WS_ID = '87630762-9194-47fb-a6e3-d352d33ad0f5';
-  if (workspaces.length === 0 || userId === '3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692') {
-    const masterWs = await getWorkspace(MASTER_WS_ID);
-    if (masterWs && !workspaces.some(w => w.id === masterWs.id)) {
-      workspaces.push(masterWs);
     }
   }
 
@@ -302,7 +286,7 @@ export interface WorkspaceMemberWithProfile extends WorkspaceMember {
   };
 }
 
-export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberWithProfile[]> {
+export async function getWorkspaceMembersRaw(workspaceId: string): Promise<WorkspaceMember[]> {
   await ensureWorkspaceDir();
   const membersPath = path.join(WORKSPACE_DIR, `${workspaceId}_members.json`);
   const content = await safeReadFile(membersPath);
@@ -310,11 +294,20 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
 
   try {
     const raw = JSON.parse(content);
-    const members: WorkspaceMember[] = Array.isArray(raw)
+    return Array.isArray(raw)
       ? raw
       : Array.isArray(raw?.items)
       ? raw.items
       : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberWithProfile[]> {
+  const members = await getWorkspaceMembersRaw(workspaceId);
+  if (members.length === 0) return [];
+  try {
     const memberProfiles = await Promise.all(
       members.map(async m => {
         const u = await readUser(m.userId);
@@ -454,6 +447,6 @@ export async function checkWorkspaceAccess(workspaceId: string, user: { id: stri
   if (user.role === 'admin') return true;
   const ws = await getWorkspace(workspaceId);
   if (ws && ws.ownerId === user.id) return true;
-  const members = await listWorkspaceMembers(workspaceId);
+  const members = await getWorkspaceMembersRaw(workspaceId);
   return members.some(m => m.userId === user.id);
 }

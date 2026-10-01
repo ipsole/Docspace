@@ -8,6 +8,7 @@ import {
   TrendingUp, Target, Building2, Trash2, Calendar, ArrowLeft, ArrowRight, CheckCircle2, Briefcase,
   UserPlus, Check, Sparkles, UserCheck
 } from 'lucide-react';
+import { emitSyncEvent, subscribeSyncEvent } from '@/lib/sync/crossTabSync';
 
 interface Client {
   id: string;
@@ -185,6 +186,14 @@ export default function LeadsPage() {
 
   useEffect(() => {
     fetchData();
+
+    const unsub = subscribeSyncEvent('docspace_client_status', () => {
+      fetchData();
+    });
+
+    return () => {
+      unsub();
+    };
   }, [activeWorkspace]);
 
   useEffect(() => {
@@ -311,6 +320,7 @@ export default function LeadsPage() {
         setLeadToConvert(null);
         setToastMessage(`"${convertCompanyName || leadToConvert.title}" is now an official Client! Moved out of Leads.`);
         await fetchData();
+        emitSyncEvent('docspace_client_status', { type: 'client_created', workspaceId: activeWorkspace.id });
       } else {
         const errData = await res.json();
         alert(errData.error || 'Failed to convert lead to client');

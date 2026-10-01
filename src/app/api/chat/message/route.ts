@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { loadConversation } from '@/lib/storage/storage';
 import { loadMessages, sendMessage, editMessage, renameMessageAttachment, deleteMessage, toggleReaction, pinMessage } from '@/lib/services/chat';
 import { listWorkspaceMembers, getWorkspace, checkWorkspaceAccess } from '@/lib/services/workspace';
+import { getGDriveConfig, getGDriveAccessToken, deleteFile as driveDeleteFile } from '@/lib/storage/google-drive';
+import { firestoreDelete, isFirestoreEnabled } from '@/lib/storage/firestoreAdapter';
 
 // Helper to check user access to a conversation
 async function verifyChatAccess(chatId: string, userId: string, role?: string): Promise<{ authorized: boolean; convo?: any; error?: string }> {
@@ -207,6 +209,33 @@ export async function DELETE(request: NextRequest) {
 
     if (!isAuthorizedDeleter) {
       return NextResponse.json({ error: 'Forbidden: Cannot delete this message' }, { status: 403 });
+    }
+
+    // Delete any Google Drive files attached to this message
+    if (target.attachments && target.attachments.length > 0) {
+      try {
+        const gdriveConfig = await getGDriveConfig();
+        if (gdriveConfig?.connected) {
+          const accessToken = await getGDriveAccessToken();
+          for (const att of target.attachments) {
+            let fileId = (att as any).googleDriveFileId;
+            if (!fileId && att.url) {
+              const match = att.url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || att.url.match(/[?&](?:fileId|id|driveFileId)=([a-zA-Z0-9_-]+)/);
+              if (match) fileId = match[1];
+            }
+            if (fileId) {
+              await driveDeleteFile(fileId, accessToken).catch((err: any) => {
+                console.warn(`[GDrive] Failed to delete file ${fileId}:`, err.message);
+              });
+              if (isFirestoreEnabled() && att.id) {
+                await firestoreDelete('google_drive_files', att.id).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (gdriveErr: any) {
+        console.warn('[GDrive] Attachment cleanup error:', gdriveErr.message);
+      }
     }
 
     const completely = searchParams.get('completely') === 'true';

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreQuery } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CalendarEvent {
@@ -32,9 +32,9 @@ async function ensureDirs() {
 
 export async function listEvents(workspaceId: string): Promise<CalendarEvent[]> {
   if (isFirestoreEnabled()) {
-    const events = await firestoreList<CalendarEvent>('calendar');
+    const events = await firestoreQuery<CalendarEvent>('calendar', 'workspaceId', workspaceId);
     return events
-      .filter(e => e && e.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime());
   }
 

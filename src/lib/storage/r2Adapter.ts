@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 let s3ClientInstance: S3Client | null = null;
 
@@ -106,6 +107,61 @@ export async function uploadToR2(
     key,
     url: getR2PublicUrl(key),
   };
+}
+
+/**
+ * Generates a pre-signed URL for direct browser-to-R2 upload (PUT).
+ * This completely bypasses serverless runtime timeouts, memory limits, and request body size caps.
+ */
+export async function getSignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresInSeconds: number = 3600
+): Promise<string> {
+  const client = getR2Client();
+  const bucket = getR2BucketName();
+
+  if (!client || !bucket) {
+    throw new Error('Cloudflare R2 is not configured properly.');
+  }
+
+  // Bust listing cache so fresh uploads appear immediately upon completion
+  r2ListCache.clear();
+
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ContentType: contentType,
+  });
+
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+/**
+ * Checks if an object exists in Cloudflare R2 and returns its size and contentType.
+ */
+export async function headObjectFromR2(key: string): Promise<{ size: number; contentType?: string } | null> {
+  const client = getR2Client();
+  const bucket = getR2BucketName();
+  if (!client || !bucket) return null;
+
+  try {
+    const res = await client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+    return {
+      size: res.ContentLength || 0,
+      contentType: res.ContentType,
+    };
+  } catch (err: any) {
+    if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    return null;
+  }
 }
 
 /**

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Client, CRMLead } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet, firestoreQuery } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 import { recalculateProjectProgress } from './project';
 
@@ -24,9 +24,9 @@ async function ensureDirs() {
 
 export async function listClients(workspaceId: string): Promise<Client[]> {
   if (isFirestoreEnabled()) {
-    const allClients = await firestoreList<Client>('clients');
+    const allClients = await firestoreQuery<Client>('clients', 'workspaceId', workspaceId);
     return allClients
-      .filter(c => c && c.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
@@ -460,9 +460,9 @@ export async function purgeOrphanClientData(): Promise<void> {
 
 export async function listLeads(workspaceId: string): Promise<CRMLead[]> {
   if (isFirestoreEnabled()) {
-    const allLeads = await firestoreList<CRMLead>('crm');
+    const allLeads = await firestoreQuery<CRMLead>('crm', 'workspaceId', workspaceId);
     return allLeads
-      .filter(l => l && l.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 

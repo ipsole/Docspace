@@ -15,6 +15,7 @@ import {
 import { determineGSTTreatment, classifyClientCategory, INDIAN_STATES } from '@/lib/services/gstEngine';
 import { APPS_SCRIPT_TEMPLATE, SheetConfig } from '@/lib/services/sheetSyncTemplate';
 import CustomDropdown from '@/components/CustomDropdown';
+import { emitSyncEvent, subscribeSyncEvent } from '@/lib/sync/crossTabSync';
 
 function InvoicesUrlListener({
   onParams
@@ -1053,6 +1054,18 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     fetchInvoices();
+
+    const unsubInv = subscribeSyncEvent('docspace_invoice_status', () => {
+      fetchInvoices();
+    });
+    const unsubClient = subscribeSyncEvent('docspace_client_status', () => {
+      fetchInvoices();
+    });
+
+    return () => {
+      unsubInv();
+      unsubClient();
+    };
   }, [activeWorkspace]);
 
   // Load custom tags for active workspace
@@ -1783,6 +1796,7 @@ export default function InvoicesPage() {
               });
             }
           }
+          emitSyncEvent('docspace_invoice_status', { type: 'invoice_updated', invoiceId: editedId, workspaceId: activeWorkspace.id });
         } else {
           const data = await res.json();
           alert(data.error || 'Failed to update invoice');
@@ -1811,6 +1825,7 @@ export default function InvoicesPage() {
           const activeTabForDoc = docType === 'proforma' ? 'proforma' : docType === 'receipt' ? 'receipt' : 'invoice';
           setActiveDocTypeTab(activeTabForDoc);
           fetchInvoices();
+          emitSyncEvent('docspace_invoice_status', { type: 'invoice_created', workspaceId: activeWorkspace.id });
         } else {
           const data = await res.json();
           alert(data.error || 'Failed to create invoice');
@@ -1854,6 +1869,8 @@ export default function InvoicesPage() {
         // Revert on failure
         setInvoices(prevInvoices);
         setSelectedInvoice(prevSelected);
+      } else {
+        emitSyncEvent('docspace_invoice_status', { type: 'invoice_updated', invoiceId: id, status: newStatus, workspaceId: activeWorkspace.id });
       }
     } catch (err) {
       console.error(err);
@@ -1878,6 +1895,7 @@ export default function InvoicesPage() {
         method: 'DELETE'
       });
       if (res.ok) {
+        emitSyncEvent('docspace_invoice_status', { type: 'invoice_deleted', invoiceId: id, workspaceId: activeWorkspace.id });
         // Also remove row from Google Sheet if synced
         try {
           fetch('/api/crm/sheet-sync', {

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Project, Task } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet, firestoreQuery } from '../storage/firestoreAdapter';
 import { getClient } from './crm';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -24,9 +24,9 @@ async function ensureDirs() {
 
 export async function listProjects(workspaceId: string): Promise<Project[]> {
   if (isFirestoreEnabled()) {
-    const projects = await firestoreList<Project>('projects');
+    const projects = await firestoreQuery<Project>('projects', 'workspaceId', workspaceId);
     return projects
-      .filter(p => p && p.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
@@ -141,8 +141,7 @@ export async function recalculateProjectProgress(projectId: string): Promise<num
 
 export async function listTasks(workspaceId: string): Promise<Task[]> {
   if (isFirestoreEnabled()) {
-    const tasks = await firestoreList<Task>('tasks');
-    return tasks.filter(t => t && t.workspaceId === workspaceId);
+    return await firestoreQuery<Task>('tasks', 'workspaceId', workspaceId);
   }
 
   await ensureDirs();
@@ -179,8 +178,7 @@ export async function listTasks(workspaceId: string): Promise<Task[]> {
 
 export async function listTasksByProject(projectId: string): Promise<Task[]> {
   if (isFirestoreEnabled()) {
-    const tasks = await firestoreList<Task>('tasks');
-    return tasks.filter(t => t && t.projectId === projectId);
+    return await firestoreQuery<Task>('tasks', 'projectId', projectId);
   }
 
   await ensureDirs();

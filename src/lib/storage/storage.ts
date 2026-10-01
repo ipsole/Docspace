@@ -4,7 +4,6 @@ import { isFirestoreEnabled, firestoreGet, firestoreSet, firestoreDelete, firest
 
 // Define the root storage directory
 export const STORAGE_ROOT = path.join(process.cwd(), 'storage');
-export const SEED_ROOT = path.join(process.cwd(), 'storage_seed');
 
 const DIRS = [
   'users',
@@ -181,13 +180,6 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
     return await fs.readFile(filePath, 'utf-8');
   } catch (error: any) {
     if (error.code === 'ENOENT' || error.code === 'EROFS') {
-      try {
-        const rel = path.relative(STORAGE_ROOT, filePath);
-        if (!rel.startsWith('..')) {
-          const seedPath = path.join(SEED_ROOT, rel);
-          return await fs.readFile(seedPath, 'utf-8');
-        }
-      } catch {}
       return null;
     }
     throw error;
@@ -343,9 +335,6 @@ export async function readUserByEmail(email: string): Promise<User | null> {
 }
 
 export async function createUser(user: User): Promise<User> {
-  if (isFirestoreEnabled()) {
-    await firestoreSet('users', user.id, user);
-  }
   const userPath = path.join(STORAGE_ROOT, 'users', `${user.id}.json`);
   await safeWriteFile(userPath, JSON.stringify(user, null, 2));
   return user;
@@ -355,65 +344,38 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   const user = await readUser(id);
   if (!user) throw new Error('User not found');
   const updatedUser = { ...user, ...updates, updatedAt: new Date().toISOString() };
-  if (isFirestoreEnabled()) {
-    await firestoreSet('users', id, updatedUser);
-  }
   const userPath = path.join(STORAGE_ROOT, 'users', `${id}.json`);
   await safeWriteFile(userPath, JSON.stringify(updatedUser, null, 2));
   return updatedUser;
 }
 
 export async function deleteUser(id: string): Promise<void> {
-  if (isFirestoreEnabled()) {
-    await firestoreDelete('users', id);
-  }
   await safeDeleteFile(path.join(STORAGE_ROOT, 'users', `${id}.json`));
 }
 
 export async function listUsers(): Promise<User[]> {
   if (isFirestoreEnabled()) {
-    try {
-      const users = await firestoreList<User>('users');
-      if (users && users.length > 0) {
-        return users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
-      }
-    } catch (err) {
-      console.warn('Firestore listUsers failed, trying local disk fallback:', err);
-    }
+    const users = await firestoreList<User>('users');
+    return users.sort((a, b) => a.username.localeCompare(b.username));
   }
 
   await ensureDirs();
-  const dirsToCheck = [
-    path.join(STORAGE_ROOT, 'users'),
-    path.join(SEED_ROOT, 'users')
-  ];
-  const userMap = new Map<string, User>();
-
-  for (const dirPath of dirsToCheck) {
-    const files = await fs.readdir(dirPath).catch(() => []);
-    for (const file of files) {
-      if (isJsonDataFile(file)) {
-        const content = await safeReadFile(path.join(dirPath, file));
-        if (content) {
-          try {
-            const parsed = JSON.parse(content);
-            if (parsed.id && !userMap.has(parsed.id)) {
-              userMap.set(parsed.id, parsed);
-              // If Firestore is enabled, try syncing local user to Firestore in background
-              if (isFirestoreEnabled()) {
-                firestoreSet('users', parsed.id, parsed).catch(() => {});
-              }
-            }
-          } catch {
-            // ignore corrupted user files
-          }
+  const dirPath = path.join(STORAGE_ROOT, 'users');
+  const files = await fs.readdir(dirPath).catch(() => []);
+  const users: User[] = [];
+  for (const file of files) {
+    if (isJsonDataFile(file)) {
+      const content = await safeReadFile(path.join(dirPath, file));
+      if (content) {
+        try {
+          users.push(JSON.parse(content));
+        } catch {
+          // ignore corrupted user files
         }
       }
     }
   }
-
-  const users = Array.from(userMap.values());
-  return users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+  return users.sort((a, b) => a.username.localeCompare(b.username));
 }
 
 // SESSION DATABASE OPERATIONS

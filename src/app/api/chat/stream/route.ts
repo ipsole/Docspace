@@ -5,6 +5,10 @@ import { updateUser, listUsers } from '@/lib/storage/storage';
 
 export const dynamic = 'force-dynamic';
 
+const lastPresenceWrite = new Map<string, { status: string; timestamp: number }>();
+const pendingOfflineTimers = new Map<string, NodeJS.Timeout>();
+const PRESENCE_THROTTLE_MS = 60 * 1000; // 1 minute write throttle
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser(request);
@@ -17,8 +21,20 @@ export async function GET(request: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        // Mark user as online and broadcast presence
-        await updateUser(user.id, { status: 'online', lastSeen: new Date().toISOString() });
+        // Cancel any pending offline timer if user reconnected quickly (e.g. page navigation)
+        const pendingTimer = pendingOfflineTimers.get(user.id);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          pendingOfflineTimers.delete(user.id);
+        }
+
+        // Throttle Firestore write so we don't write on every tab switch
+        const lastWrite = lastPresenceWrite.get(user.id);
+        const now = Date.now();
+        if (!lastWrite || lastWrite.status !== 'online' || now - lastWrite.timestamp > PRESENCE_THROTTLE_MS) {
+          lastPresenceWrite.set(user.id, { status: 'online', timestamp: now });
+          updateUser(user.id, { status: 'online', lastSeen: new Date().toISOString() }).catch(() => {});
+        }
         broadcastPresence(user.id, 'online');
 
         // Helper to send events
@@ -120,9 +136,14 @@ export async function GET(request: NextRequest) {
             // Fail silently
           }
 
-          // Mark user as offline
-          await updateUser(user.id, { status: 'offline', lastSeen: new Date().toISOString() });
-          broadcastPresence(user.id, 'offline');
+          // Debounce marking user offline so rapid page changes within the app don't cause false offline flutters
+          const timer = setTimeout(() => {
+            pendingOfflineTimers.delete(user.id);
+            lastPresenceWrite.set(user.id, { status: 'offline', timestamp: Date.now() });
+            updateUser(user.id, { status: 'offline', lastSeen: new Date().toISOString() }).catch(() => {});
+            broadcastPresence(user.id, 'offline');
+          }, 3000);
+          pendingOfflineTimers.set(user.id, timer);
         });
       }
     });

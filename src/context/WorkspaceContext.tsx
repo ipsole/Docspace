@@ -20,22 +20,24 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefin
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const cached = localStorage.getItem('docspace_cached_workspaces');
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
-  });
-  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const cached = localStorage.getItem('docspace_cached_active_ws');
-      return cached ? JSON.parse(cached) : null;
-    } catch { return null; }
-  });
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(null);
   const [currentMember, setCurrentMember] = useState<WorkspaceMember | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Restore cached workspace on client mount to avoid SSR hydration mismatch
+  useEffect(() => {
+    try {
+      const cachedWs = localStorage.getItem('docspace_cached_workspaces');
+      if (cachedWs) {
+        setWorkspaces(JSON.parse(cachedWs));
+      }
+      const cachedActive = localStorage.getItem('docspace_cached_active_ws');
+      if (cachedActive) {
+        setActiveWorkspaceState(JSON.parse(cachedActive));
+      }
+    } catch {}
+  }, []);
 
   const fetchCurrentMember = async (wsId?: string) => {
     const targetWsId = wsId || activeWorkspace?.id;
@@ -89,8 +91,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [activeWorkspace?.id, user?.id]);
 
   const getTabAccess = (tabKey: string): TabAccessLevel => {
-    // System admin and owner always have full access to all tabs
-    if (user?.role === 'admin' || user?.id === '3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692') return 'full';
     if (!activeWorkspace || !user) return 'none';
     // Workspace Owner always has full access to all tabs in their workspace
     if (activeWorkspace.ownerId === user.id) return 'full';
@@ -132,31 +132,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/workspaces');
       if (res.ok) {
-        let data = (await res.json()) as Workspace[];
-        
-        // If server returned empty, fall back to cached or default Docspace workspace
-        if (!Array.isArray(data) || data.length === 0) {
-          try {
-            const cached = localStorage.getItem('docspace_cached_workspaces');
-            if (cached) {
-              const parsed = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.length > 0) data = parsed;
-            }
-          } catch {}
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
-          data = [{
-            id: '87630762-9194-47fb-a6e3-d352d33ad0f5',
-            name: 'Docspace',
-            slug: 'docspace-87630',
-            logoUrl: null,
-            ownerId: user.id || '3abe21f2-e8a6-4ed2-8e5d-9137fc6fe692',
-            createdAt: '2026-07-11T13:57:13.741Z',
-            updatedAt: '2026-07-11T13:57:13.741Z'
-          }];
-        }
-
+        const data = (await res.json()) as Workspace[];
         setWorkspaces(data);
         try {
           localStorage.setItem('docspace_cached_workspaces', JSON.stringify(data));

@@ -9,7 +9,7 @@ import {
   LayoutDashboard, MessageSquare, FolderKanban, Target, Users2,
   FileText, FileSpreadsheet, Calendar, Settings, LogOut, Plus,
   Check, Loader2, Menu, PanelLeftClose, PanelLeftOpen,
-  MoreVertical, Search, ReceiptText, UserCheck, Briefcase, Globe, Shield
+  MoreVertical, Search, ReceiptText, UserCheck, Briefcase, Globe, Shield, ChevronDown
 } from 'lucide-react';
 import CommandPalette from '@/components/CommandPalette';
 import { ConfirmProvider, useConfirm } from '@/context/ConfirmContext';
@@ -64,7 +64,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { workspaces, activeWorkspace, setActiveWorkspace, createWorkspace, fetchWorkspaces, getTabAccess, currentMember } = useWorkspace();
   const confirm = useConfirm();
 
-  const isOwner = !!(activeWorkspace && user && (activeWorkspace.ownerId === user.id || currentMember?.role === 'owner'));
+  const isOwner = !!(user?.role === 'admin' || (activeWorkspace && user && (activeWorkspace.ownerId === user.id || currentMember?.role === 'owner')));
+  const canCreateWorkspace = user?.role === 'admin' || isOwner;
   const isManager = currentMember?.role === 'manager';
   const isTeamMember = currentMember?.role === 'team' || currentMember?.role === 'member';
 
@@ -284,11 +285,22 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             {!isCollapsed ? (
               <div
                 onClick={() => setShowWorkspacePicker(!showWorkspacePicker)}
-                className="min-w-0 cursor-pointer select-none px-1 overflow-visible"
+                className="min-w-0 cursor-pointer select-none px-2 py-1.5 rounded-2xl hover:bg-gray-50 flex items-center justify-between transition-colors group"
+                title="Click to switch or create workspace"
               >
-                <h1 className="text-[30px] font-dearllane font-normal text-gray-950 tracking-normal leading-[1.3] pt-2 pb-0.5 overflow-visible select-none">
-                  Docspace
-                </h1>
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-[28px] font-dearllane font-normal text-gray-950 tracking-normal leading-tight select-none">
+                    Docspace
+                  </h1>
+                  {activeWorkspace?.name && activeWorkspace.name.toLowerCase() !== 'docspace' && (
+                    <p suppressHydrationWarning className="text-[11px] font-medium text-gray-500 truncate max-w-[160px] -mt-1">
+                      {activeWorkspace.name}
+                    </p>
+                  )}
+                </div>
+                <div className="shrink-0 ml-1 p-1 rounded-lg bg-gray-100/80 group-hover:bg-gray-200/80 text-gray-500 transition-colors">
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showWorkspacePicker ? 'rotate-180' : ''}`} />
+                </div>
               </div>
             ) : (
               <div
@@ -310,6 +322,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   {designationLabel}
                 </span>
               </div>
+              {workspaces.length === 0 && (
+                <p className="px-2.5 py-2 text-xs text-gray-400 italic">No workspaces found</p>
+              )}
               {workspaces.map(ws => {
                 const displayName = (!isOwner && ws.name.toLowerCase() === 'admin') ? 'Docspace' : ws.name;
                 return (
@@ -327,10 +342,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   </button>
                 );
               })}
-              {isOwner && (
+              {canCreateWorkspace && (
                 <button
                   onClick={() => { setShowNewWorkspaceModal(true); setShowWorkspacePicker(false); }}
-                  className="flex items-center gap-2 w-full px-2.5 py-2 text-xs font-semibold text-gray-900 hover:bg-gray-100 rounded-xl transition-colors mt-1 border-t border-gray-200/60"
+                  className="flex items-center gap-2 w-full px-2.5 py-2 text-xs font-semibold text-gray-900 hover:bg-gray-100 rounded-xl transition-colors mt-1 border-t border-gray-200/60 cursor-pointer"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   New Workspace

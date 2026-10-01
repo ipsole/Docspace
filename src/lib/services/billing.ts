@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Invoice, Payment, InvoiceLineItem } from '../storage/models';
 import { safeReadFile, safeWriteFile, safeDeleteFile, STORAGE_ROOT } from '../storage/storage';
-import { isFirestoreEnabled, firestoreList, firestoreGet } from '../storage/firestoreAdapter';
+import { isFirestoreEnabled, firestoreList, firestoreGet, firestoreQuery } from '../storage/firestoreAdapter';
 import { v4 as uuidv4 } from 'uuid';
 
 const INVOICES_DIR = path.join(STORAGE_ROOT, 'invoices');
@@ -46,9 +46,9 @@ export function calculateInvoiceTotals(
 
 export async function listInvoices(workspaceId: string): Promise<Invoice[]> {
   if (isFirestoreEnabled()) {
-    const invoices = await firestoreList<Invoice>('invoices');
+    const invoices = await firestoreQuery<Invoice>('invoices', 'workspaceId', workspaceId);
     return invoices
-      .filter(inv => inv && inv.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
   }
 
@@ -153,9 +153,9 @@ export async function deleteInvoice(id: string): Promise<void> {
 
 export async function listPayments(workspaceId: string): Promise<Payment[]> {
   if (isFirestoreEnabled()) {
-    const payments = await firestoreList<Payment>('payments');
+    const payments = await firestoreQuery<Payment>('payments', 'workspaceId', workspaceId);
     return payments
-      .filter(p => p && p.workspaceId === workspaceId)
+      .filter(Boolean)
       .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
   }
 

@@ -52,8 +52,11 @@ interface Invoice {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { activeWorkspace, workspaces, setActiveWorkspace } = useWorkspace();
+  const { activeWorkspace, workspaces, setActiveWorkspace, createWorkspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
+  const [creatingWs, setCreatingWs] = useState(false);
+  const [newWsName, setNewWsName] = useState('');
+  const [showCreateInput, setShowCreateInput] = useState(false);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [chats, setChats] = useState<Conversation[]>([]);
@@ -215,18 +218,95 @@ export default function DashboardPage() {
   }
 
   if (!activeWorkspace) {
-    if (workspaces && workspaces.length > 0) {
-      setActiveWorkspace(workspaces[0]);
-      return <SkeletonScreen />;
-    }
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="text-center max-w-sm bg-white rounded-3xl border border-gray-200 p-8 shadow-xs">
-          <div className="h-12 w-12 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4 text-gray-500">
+        <div className="text-center max-w-md w-full bg-white rounded-3xl border border-gray-200/80 p-8 shadow-xs space-y-5">
+          <div className="h-12 w-12 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto text-gray-500">
             <AlertCircle className="h-6 w-6" />
           </div>
-          <h2 className="text-sm font-bold text-gray-900 mb-1">No Workspace Selected</h2>
-          <p className="text-xs text-gray-500">Select or create a workspace from the sidebar to view your dashboard.</p>
+          <div>
+            <h2 className="text-base font-bold text-gray-900 mb-1">No Workspace Selected</h2>
+            <p className="text-xs text-gray-500">
+              {workspaces.length > 0
+                ? 'Select a workspace below to enter your dashboard.'
+                : 'Create your first workspace to start managing projects, clients, and chats.'}
+            </p>
+          </div>
+
+          {workspaces.length > 0 && (
+            <div className="space-y-1.5 text-left max-h-48 overflow-y-auto pr-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">Your Workspaces</p>
+              {workspaces.map(ws => (
+                <button
+                  key={ws.id}
+                  onClick={() => setActiveWorkspace(ws)}
+                  className="w-full px-3.5 py-2.5 text-xs font-semibold text-gray-800 hover:bg-gray-50 hover:text-black rounded-xl transition-all flex items-center justify-between border border-gray-200/60 cursor-pointer"
+                >
+                  <span className="truncate">{ws.name}</span>
+                  <ChevronRight className="h-4 w-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {user?.role === 'admin' && (
+            <div className="pt-2 border-t border-gray-100">
+              {!showCreateInput ? (
+                <button
+                  onClick={() => setShowCreateInput(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition-all shadow-xs cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create New Workspace
+                </button>
+              ) : (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!newWsName.trim() || creatingWs) return;
+                    setCreatingWs(true);
+                    try {
+                      await createWorkspace(newWsName.trim());
+                      setNewWsName('');
+                      setShowCreateInput(false);
+                    } catch (err: any) {
+                      alert(err.message || 'Failed to create workspace');
+                    } finally {
+                      setCreatingWs(false);
+                    }
+                  }}
+                  className="space-y-3 text-left"
+                >
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">New Workspace Name</p>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    placeholder="e.g. Design Studio"
+                    value={newWsName}
+                    onChange={e => setNewWsName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-900 focus:bg-white focus:outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-100 transition-all"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateInput(false)}
+                      className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingWs}
+                      className="px-4 py-1.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {creatingWs ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Create'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
