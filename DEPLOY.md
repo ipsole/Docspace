@@ -60,4 +60,7 @@ Add these in **Vercel Project Settings > Environment Variables**:
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase Messaging Sender ID |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase App ID |
 | `OWNER_GOOGLE_EMAIL` | Owner Google Email for Google Auth admin access |
+| `GOOGLE_DRIVE_CLIENT_ID` | Google OAuth Client ID (from Google Cloud Console) |
+| `GOOGLE_DRIVE_CLIENT_SECRET` | Google OAuth Client Secret |
+| `GOOGLE_DRIVE_REDIRECT_URI` | `https://<your-domain>/api/auth/google/callback` |
 
