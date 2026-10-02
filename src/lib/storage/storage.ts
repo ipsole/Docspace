@@ -439,7 +439,7 @@ export async function cleanExpiredSessions(): Promise<void> {
 }
 
 // CONVERSATION DATABASE OPERATIONS
-type StoredConversation = Conversation & {
+export type StoredConversation = Conversation & {
   isGroup?: boolean;
 };
 
@@ -467,7 +467,7 @@ async function inferConversationParticipants(conversationId: string): Promise<st
   return Array.from(new Set(messages.map(message => message.senderId).filter(Boolean)));
 }
 
-async function normalizeConversationRecord(raw: StoredConversation): Promise<Conversation> {
+export async function normalizeConversationRecord(raw: StoredConversation): Promise<Conversation> {
   const inferredParticipants = raw.participants?.length
     ? raw.participants
     : await inferConversationParticipants(raw.id);

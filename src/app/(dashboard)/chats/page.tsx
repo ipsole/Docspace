@@ -257,6 +257,10 @@ export default function ChatsPage() {
     } catch { return true; }
   });
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(false);
+  const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);
+  const [hasMoreConvs, setHasMoreConvs] = useState(false);
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
   const [input, setInput] = useState(() => {
     if (typeof window === 'undefined') return '';
     try {
@@ -702,6 +706,7 @@ export default function ChatsPage() {
   }, []);
 
   const usersByIdRef = useRef<Record<string, ApiUser>>({});
+  const lastMembersFetchRef = useRef<number>(0);
   const userRef = useRef(user);
 
   useEffect(() => {
@@ -784,13 +789,23 @@ export default function ChatsPage() {
   const fetchConversations = useCallback(async () => {
     if (!activeWorkspace) return;
     try {
-      const [membersRes, chatsRes] = await Promise.all([
-        fetch(`/api/workspaces/members?workspaceId=${activeWorkspace.id}`),
-        fetch(`/api/chat?workspaceId=${activeWorkspace.id}`)
-      ]);
+      const now = Date.now();
+      const shouldFetchMembers = now - lastMembersFetchRef.current > 120000 || Object.keys(usersByIdRef.current).length === 0;
+
+      const fetchPromises: Promise<any>[] = [
+        fetch(`/api/chat?workspaceId=${activeWorkspace.id}&limit=40`)
+      ];
+      if (shouldFetchMembers) {
+        fetchPromises.push(fetch(`/api/workspaces/members?workspaceId=${activeWorkspace.id}`));
+      }
+
+      const results = await Promise.all(fetchPromises);
+      const chatsRes = results[0];
+      const membersRes = shouldFetchMembers ? results[1] : null;
 
       let latestMap = usersByIdRef.current;
-      if (membersRes.ok) {
+      if (membersRes && membersRes.ok) {
+        lastMembersFetchRef.current = now;
         const list: any[] = await membersRes.json();
         const mapping: Record<string, ApiUser> = {};
         const userMapping: Record<string, string> = {};
@@ -808,32 +823,37 @@ export default function ChatsPage() {
       }
       if (chatsRes.ok) {
         const raw: ApiConversation[] = await chatsRes.json();
+        setHasMoreConvs(raw.length >= 40);
         const norms = raw.map(c => normalizeConversation(c, latestMap));
         const uniqueNorms = Array.from(new Map(norms.map(c => [c.id, c])).values());
         setConversations(prev => {
-          const prevMap = new Map(prev.map(c => [c.id, c]));
-          const mergedNorms = uniqueNorms.map(fresh => {
-            const existing = prevMap.get(fresh.id);
-            if (!existing) return fresh;
+          const mergedMap = new Map<string, any>(prev.map(c => [c.id, c]));
+          uniqueNorms.forEach(fresh => {
+            const existing = mergedMap.get(fresh.id);
+            if (!existing) {
+              mergedMap.set(fresh.id, fresh);
+              return;
+            }
             const existingTime = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
             const freshTime = fresh.lastMessageAt ? new Date(fresh.lastMessageAt).getTime() : 0;
             const resolvedUnread = fresh.id === activeConvIdRef.current ? 0 : Math.max(existing.unreadCount || 0, fresh.unreadCount || 0);
             // Never overwrite a newer or optimistic lastMessage with older conversation summary
             if (existingTime > freshTime && existing.lastMessage) {
-              return {
+              mergedMap.set(fresh.id, {
                 ...fresh,
                 lastMessage: existing.lastMessage,
                 lastMessageAt: existing.lastMessageAt,
                 unreadCount: resolvedUnread
-              };
+              });
+            } else {
+              mergedMap.set(fresh.id, {
+                ...fresh,
+                unreadCount: resolvedUnread
+              });
             }
-            return {
-              ...fresh,
-              unreadCount: resolvedUnread
-            };
           });
 
-          const sortedNorms = sortConversationsDeterministically(mergedNorms);
+          const sortedNorms = sortConversationsDeterministically(Array.from(mergedMap.values()));
 
           if (prev.length === sortedNorms.length) {
             let unchanged = true;
@@ -884,6 +904,32 @@ export default function ChatsPage() {
     } catch { /* ignore */ }
     finally { setLoadingConvs(false); }
   }, [activeWorkspace, normalizeConversation]);
+
+  const handleLoadMoreConvs = async () => {
+    if (!activeWorkspace || loadingMoreConvs) return;
+    setLoadingMoreConvs(true);
+    try {
+      const res = await fetch(`/api/chat?workspaceId=${activeWorkspace.id}&limit=40&offset=${conversations.length}`);
+      if (res.ok) {
+        const raw: ApiConversation[] = await res.json();
+        if (raw.length < 40) {
+          setHasMoreConvs(false);
+        }
+        if (raw.length > 0) {
+          const norms = raw.map(c => normalizeConversation(c, usersByIdRef.current));
+          setConversations(prev => {
+            const prevIds = new Set(prev.map(c => c.id));
+            const newConvs = norms.filter(c => !prevIds.has(c.id));
+            return sortConversationsDeterministically([...prev, ...newConvs]);
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load more conversations', err);
+    } finally {
+      setLoadingMoreConvs(false);
+    }
+  };
 
   // Immediate synchronous cache hydration on browser mount
   useEffect(() => {
@@ -1791,7 +1837,7 @@ export default function ChatsPage() {
 
     if (showLoader) setLoadingMsgs(true);
     try {
-      const res = await fetch(`/api/chat/message?chatId=${chatId}`);
+      const res = await fetch(`/api/chat/message?chatId=${chatId}&limit=35`);
       if (res.ok) {
         // Only discard if the user has navigated to a DIFFERENT chat — seq bumped on chat switch
         if (activeConvIdRef.current !== chatId) return;
@@ -1803,6 +1849,11 @@ export default function ChatsPage() {
 
         const raw: ApiMessage[] = await res.json();
         const serverMsgs = raw.map(m => normalizeMessage(m));
+        if (serverMsgs.length >= 35) {
+          setHasMoreOlderMessages(true);
+        } else {
+          setHasMoreOlderMessages(false);
+        }
 
         setMessages(prev => {
           // Double check active chat hasn't switched
@@ -1823,8 +1874,9 @@ export default function ChatsPage() {
             }
           }
 
-          // Keep pending optimistic messages that haven't reconciled yet (temp_ OR real IDs not on server)
+          // Keep pending optimistic messages and loaded older messages that aren't in this latest 35 slice
           const serverIds = new Set(serverMsgs.map(m => m.id));
+          const existingOlder = prev.filter(m => !serverIds.has(m.id) && !m.id.startsWith('temp_') && !m.id.startsWith('failed_'));
           const pendingTemps = prev.filter(m =>
             (m.id.startsWith('temp_') || m.id.startsWith('failed_')) &&
             !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId)
@@ -1836,7 +1888,7 @@ export default function ChatsPage() {
             m.senderId === userRef.current?.id
           );
 
-          const combined = [...serverMsgs, ...pendingTemps, ...optimisticReal];
+          const combined = [...serverMsgs, ...existingOlder, ...pendingTemps, ...optimisticReal];
           const seen = new Set<string>();
           const deduped = combined.filter(m => {
             if (seen.has(m.id)) return false;
@@ -1901,6 +1953,49 @@ export default function ChatsPage() {
       if (showLoader) setLoadingMsgs(false);
     }
   }, [normalizeMessage, scrollToBottom]);
+
+  const handleLoadOlderMessages = async () => {
+    if (!activeConv?.id || loadingOlderMsgs) return;
+    const oldest = messagesRef.current.find(m => !m.id.startsWith('temp_') && !m.id.startsWith('failed_'));
+    if (!oldest) return;
+
+    setLoadingOlderMsgs(true);
+    const container = messagesContainerRef.current;
+    const previousScrollHeight = container ? container.scrollHeight : 0;
+    const previousScrollTop = container ? container.scrollTop : 0;
+
+    try {
+      const res = await fetch(`/api/chat/message?chatId=${activeConv.id}&limit=35&before=${oldest.id}`);
+      if (res.ok) {
+        const raw: ApiMessage[] = await res.json();
+        const olderMsgs = raw.map(m => normalizeMessage(m));
+        if (olderMsgs.length < 35) {
+          setHasMoreOlderMessages(false);
+        }
+        if (olderMsgs.length > 0) {
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const newOlder = olderMsgs.filter(m => !existingIds.has(m.id));
+            const combined = [...newOlder, ...prev];
+            combined.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            messagesRef.current = combined;
+            return combined;
+          });
+
+          requestAnimationFrame(() => {
+            if (container) {
+              const heightDiff = container.scrollHeight - previousScrollHeight;
+              container.scrollTop = previousScrollTop + heightDiff;
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load older messages', err);
+    } finally {
+      setLoadingOlderMsgs(false);
+    }
+  };
 
   // Request desktop notification permission on mount
   useEffect(() => {
@@ -2191,6 +2286,8 @@ export default function ChatsPage() {
       activeConvIdRef.current = null;
       setMessages([]);
       messagesRef.current = [];
+      setHasMoreOlderMessages(false);
+      setLoadingOlderMsgs(false);
       return;
     }
 
@@ -2198,6 +2295,8 @@ export default function ChatsPage() {
     activeConvIdRef.current = currentChatId;
     latestAppliedSeqRef.current = ++fetchSeqRef.current;
     fetchInFlightRef.current = null;
+    setHasMoreOlderMessages(false);
+    setLoadingOlderMsgs(false);
 
     if (typeof window !== 'undefined') {
       try {
@@ -2404,13 +2503,13 @@ export default function ChatsPage() {
           return uniqueNorms.length > 0 ? uniqueNorms[0] : null;
         });
       }, (error) => {
-        // Fallback polling if client read permissions are restricted
+        // Fallback polling if client read permissions are restricted (relaxed from 2.5s to 45s to protect DB quota)
         if (!pollTimer) {
           pollTimer = setInterval(() => {
             if (!document.hidden) {
               fetchConversations();
             }
-          }, 2500);
+          }, 45000);
         }
       });
     } catch {
@@ -2418,12 +2517,22 @@ export default function ChatsPage() {
         if (!document.hidden) {
           fetchConversations();
         }
-      }, 2500);
+      }, 45000);
     }
+
+    const handleFocusSync = () => {
+      if (!document.hidden) {
+        fetchConversations();
+      }
+    };
+    window.addEventListener('focus', handleFocusSync);
+    document.addEventListener('visibilitychange', handleFocusSync);
 
     return () => {
       if (unsubscribe) unsubscribe();
       if (pollTimer) clearInterval(pollTimer);
+      window.removeEventListener('focus', handleFocusSync);
+      document.removeEventListener('visibilitychange', handleFocusSync);
     };
   }, [activeWorkspace?.id, user?.id, normalizeConversation, fetchConversations]);
 
@@ -4505,6 +4614,25 @@ export default function ChatsPage() {
                   </div>
                 );
               })}
+              {hasMoreConvs && activeFilterTab === 'all' && (
+                <div className="p-3 text-center">
+                  <button
+                    type="button"
+                    onClick={handleLoadMoreConvs}
+                    disabled={loadingMoreConvs}
+                    className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center justify-center gap-1.5 w-full transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {loadingMoreConvs ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Loading more chats...</span>
+                      </>
+                    ) : (
+                      <span>Load more chats</span>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -4805,6 +4933,25 @@ export default function ChatsPage() {
               onScroll={handleScroll}
               className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 bg-slate-50/50 dark:bg-slate-950/10"
             >
+              {hasMoreOlderMessages && !loadingMsgs && (
+                <div className="flex justify-center py-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadOlderMessages}
+                    disabled={loadingOlderMsgs}
+                    className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 bg-white/90 dark:bg-slate-900/90 hover:bg-slate-100 dark:hover:bg-slate-800 px-3.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer font-medium"
+                  >
+                    {loadingOlderMsgs ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Loading earlier messages...</span>
+                      </>
+                    ) : (
+                      <span>Load earlier messages</span>
+                    )}
+                  </button>
+                </div>
+              )}
               {loadingMsgs ? (
                 <div className="flex items-center justify-center h-20"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>
               ) : messages.length === 0 ? (

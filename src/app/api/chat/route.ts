@@ -12,12 +12,17 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
+    const limitParam = searchParams.get('limit');
+    const offsetParam = searchParams.get('offset');
 
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId is required' }, { status: 400 });
     }
 
-    const convos = await listConversations(workspaceId, user.id, user.role);
+    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const offset = offsetParam ? parseInt(offsetParam, 10) : undefined;
+
+    const convos = await listConversations(workspaceId, user.id, user.role, { limit, offset });
     return NextResponse.json(convos);
   } catch (error: any) {
     console.error('Chat GET error:', error);

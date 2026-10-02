@@ -18,7 +18,7 @@ const DEFAULT_TTL_MS = 15 * 1000; // 15s default
 
 function getCollectionTTL(collectionName: string): number {
   if (collectionName === 'messages') return 0; // ZERO TTL: always fetch live messages directly from Firestore
-  if (collectionName === 'conversations') return 500; // 0.5s TTL for conversations
+  if (collectionName === 'conversations') return 30000; // 30s TTL for conversations (invalidated on updates)
   if (collectionName === 'tasks') return 3000; // 3s TTL for tasks so updates are quickly visible
   if (collectionName === 'projects') return 5000; // 5s TTL for projects
   if (collectionName === 'invoices') return 5000; // 5s TTL for invoices

@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { Conversation, Message } from '../storage/models';
-import { safeReadFile, safeWriteFile, STORAGE_ROOT, enqueueTask, loadConversation, listConversations as storageListConversations } from '../storage/storage';
-import { isFirestoreEnabled } from '../storage/firestoreAdapter';
+import { safeReadFile, safeWriteFile, STORAGE_ROOT, enqueueTask, loadConversation, listConversations as storageListConversations, normalizeConversationRecord, type StoredConversation } from '../storage/storage';
+import { isFirestoreEnabled, firestoreQuery } from '../storage/firestoreAdapter';
 import { listWorkspaceMembers, checkWorkspaceAccess } from './workspace';
 import { chatEmitter } from '../storage/eventEmitter';
 import { v4 as uuidv4 } from 'uuid';
@@ -30,7 +30,12 @@ function sortConvosByActivity(list: Conversation[]): Conversation[] {
   });
 }
 
-export async function listConversations(workspaceId: string, userId: string, role?: string): Promise<Conversation[]> {
+export async function listConversations(
+  workspaceId: string, 
+  userId: string, 
+  role?: string,
+  options?: { limit?: number; offset?: number }
+): Promise<Conversation[]> {
   // Check if user is a member of the workspace
   const hasAccess = await checkWorkspaceAccess(workspaceId, { id: userId, role });
   if (!hasAccess) {
@@ -38,17 +43,22 @@ export async function listConversations(workspaceId: string, userId: string, rol
   }
 
   if (isFirestoreEnabled()) {
-    const allConvos = await storageListConversations();
+    // Targeted query for only this workspace (saves scanning all database conversations)
+    const rawWorkspaceConvos = await firestoreQuery<StoredConversation>('conversations', 'workspaceId', workspaceId);
     const convos: Conversation[] = [];
-    for (const convo of allConvos) {
-      if (convo.workspaceId === workspaceId) {
-        const isWorkspaceShared = convo.isChannel || convo.isGroup || Boolean(convo.clientId);
-        if (isWorkspaceShared || convo.participants.includes(userId)) {
-          convos.push(convo);
-        }
+    for (const raw of rawWorkspaceConvos) {
+      const convo = await normalizeConversationRecord(raw);
+      const isWorkspaceShared = convo.isChannel || convo.isGroup || Boolean(convo.clientId);
+      if (isWorkspaceShared || convo.participants.includes(userId)) {
+        convos.push(convo);
       }
     }
-    return sortConvosByActivity(convos);
+    const sorted = sortConvosByActivity(convos);
+    if (options?.limit && options.limit > 0) {
+      const offset = options.offset || 0;
+      return sorted.slice(offset, offset + options.limit);
+    }
+    return sorted;
   }
 
   await ensureDirs();
@@ -77,8 +87,12 @@ export async function listConversations(workspaceId: string, userId: string, rol
       }
     }
   }
-
-  return sortConvosByActivity(convos);
+  const sorted = sortConvosByActivity(convos);
+  if (options?.limit && options.limit > 0) {
+    const offset = options.offset || 0;
+    return sorted.slice(offset, offset + options.limit);
+  }
+  return sorted;
 }
 
 export async function createChannel(
@@ -229,11 +243,22 @@ export async function getOrCreateDM(workspaceId: string, participantA: string, p
   return dm;
 }
 
-export async function loadMessages(chatId: string): Promise<Message[]> {
+export async function loadMessages(chatId: string, limit?: number, before?: string): Promise<Message[]> {
   const content = await safeReadFile(path.join(MSG_DIR, `${chatId}.json`));
   if (!content) return [];
   try {
-    return JSON.parse(content) as Message[];
+    const all = JSON.parse(content) as Message[];
+    if (!Array.isArray(all)) return [];
+    if (!limit || limit <= 0) return all;
+
+    let subset = all;
+    if (before) {
+      const idx = all.findIndex(m => m.id === before || m.createdAt === before);
+      if (idx !== -1) {
+        subset = all.slice(0, idx);
+      }
+    }
+    return subset.slice(-limit);
   } catch {
     return [];
   }

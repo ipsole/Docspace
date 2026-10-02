@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const chatId = searchParams.get('chatId');
+    const limitParam = searchParams.get('limit');
+    const beforeParam = searchParams.get('before');
 
     if (!chatId) {
       return NextResponse.json({ error: 'Missing chatId' }, { status: 400 });
@@ -52,7 +54,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: access.error }, { status: access.error?.includes('not found') ? 404 : 403 });
     }
 
-    const messages = await loadMessages(chatId);
+    const limit = limitParam === 'all' ? undefined : (limitParam ? parseInt(limitParam, 10) : 30);
+    const messages = await loadMessages(chatId, limit, beforeParam || undefined);
     return NextResponse.json(messages);
   } catch (error: any) {
     console.error('Messages GET error:', error);
