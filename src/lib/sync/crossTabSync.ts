@@ -11,7 +11,9 @@ export type SyncChannel =
   | 'docspace_project_status'
   | 'docspace_invoice_status'
   | 'docspace_client_status'
-  | 'docspace_calendar_events';
+  | 'docspace_calendar_events'
+  | 'docspace_chat_message'
+  | 'docspace_chat_conversation';
 
 // Map of persistent broadcast channels to avoid premature garbage collection or close races
 const channelMap = new Map<string, BroadcastChannel>();
@@ -239,4 +241,56 @@ export function subscribeSyncEvent<T = any>(
     }
     window.removeEventListener(channelName, handleLocalEvent);
   };
+}
+
+/**
+ * Updates a chat message across sessionStorage and localStorage caches
+ */
+export function syncChatMessageToSessionCaches(chatId: string, message: any): void {
+  if (typeof window === 'undefined') return;
+
+  // 1. Update cached_msgs_${chatId}
+  try {
+    const rawMsgs = sessionStorage.getItem(`cached_msgs_${chatId}`);
+    if (rawMsgs) {
+      const msgs = JSON.parse(rawMsgs);
+      if (Array.isArray(msgs)) {
+        const idx = msgs.findIndex((m: any) => 
+          m.id === message.id || 
+          (m.id.startsWith('temp_') && m.content === message.content && m.senderId === message.senderId)
+        );
+        let updated: any[];
+        if (idx !== -1) {
+          updated = [...msgs];
+          updated[idx] = message;
+        } else if (!msgs.some((m: any) => m.id === message.id)) {
+          updated = [...msgs, message];
+        } else {
+          updated = msgs;
+        }
+        sessionStorage.setItem(`cached_msgs_${chatId}`, JSON.stringify(updated));
+      }
+    }
+  } catch {}
+
+  // 2. Update cached_conversations
+  try {
+    const rawConvs = sessionStorage.getItem('cached_conversations');
+    if (rawConvs) {
+      const convs = JSON.parse(rawConvs);
+      if (Array.isArray(convs)) {
+        const updatedConvs = convs.map((c: any) => {
+          if (c.id === chatId) {
+            return {
+              ...c,
+              lastMessage: message.content,
+              lastMessageAt: message.createdAt
+            };
+          }
+          return c;
+        });
+        sessionStorage.setItem('cached_conversations', JSON.stringify(updatedConvs));
+      }
+    }
+  } catch {}
 }

@@ -15,6 +15,7 @@ import {
 import { uploadFile, uploadFolder, uploadToGoogleDrive } from '@/lib/uploadHelper';
 import { db } from '@/lib/firebase/client';
 import { doc, collection, onSnapshot, query, where, type Unsubscribe } from 'firebase/firestore';
+import { emitSyncEvent, subscribeSyncEvent, syncChatMessageToSessionCaches } from '@/lib/sync/crossTabSync';
 
 interface Attachment {
   id: string;
@@ -1825,11 +1826,12 @@ export default function ChatsPage() {
           // Keep pending optimistic messages that haven't reconciled yet (temp_ OR real IDs not on server)
           const serverIds = new Set(serverMsgs.map(m => m.id));
           const pendingTemps = prev.filter(m =>
-            m.id.startsWith('temp_') &&
+            (m.id.startsWith('temp_') || m.id.startsWith('failed_')) &&
             !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId)
           );
           const optimisticReal = prev.filter(m =>
             !m.id.startsWith('temp_') &&
+            !m.id.startsWith('failed_') &&
             !serverIds.has(m.id) &&
             m.senderId === userRef.current?.id
           );
@@ -2116,6 +2118,51 @@ export default function ChatsPage() {
     };
   }, [activeWorkspace, normalizeMessage, normalizeConversation, showDesktopNotification, playNotification]);
 
+  // Cross-tab & Cross-window synchronization for chat messages (0ms instantaneous updates)
+  useEffect(() => {
+    const unsub = subscribeSyncEvent('docspace_chat_message', (normMsg: Message) => {
+      if (!normMsg || !normMsg.chatId) return;
+
+      if (activeConvIdRef.current === normMsg.chatId) {
+        setMessages(prev => {
+          if (prev.some(m => m.id === normMsg.id)) return prev;
+          const tempIdx = prev.findIndex(m => 
+            (m.id.startsWith('temp_') || m.id.startsWith('failed_')) && 
+            m.senderId === normMsg.senderId && 
+            m.content === normMsg.content
+          );
+          let updated: Message[];
+          if (tempIdx !== -1) {
+            updated = [...prev];
+            updated[tempIdx] = normMsg;
+          } else {
+            updated = [...prev, normMsg];
+          }
+          messagesRef.current = updated;
+          return updated;
+        });
+        setTimeout(() => scrollToBottom('smooth'), 40);
+      } else {
+        setConversations(prev => {
+          const next = prev.map(c => {
+            if (c.id === normMsg.chatId) {
+              return {
+                ...c,
+                unreadCount: (c.unreadCount || 0) + 1,
+                lastMessage: normMsg.content,
+                lastMessageAt: normMsg.createdAt
+              };
+            }
+            return c;
+          }).sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
+          return next;
+        });
+      }
+    });
+
+    return () => unsub();
+  }, [scrollToBottom]);
+
   // Compute active typers list for rendering
   const typingDisplay = useMemo(() => {
     const activeTypers = Object.values(typingUsers).filter(t => t.isTyping);
@@ -2200,7 +2247,7 @@ export default function ChatsPage() {
           // Match by content + senderId. This ensures that if Firestore snapshot fires BEFORE the
           // server has replicated the new message, the optimistic message stays visible.
           const pendingTemps = prev.filter(m =>
-            m.id.startsWith('temp_') &&
+            (m.id.startsWith('temp_') || m.id.startsWith('failed_')) &&
             !serverMsgs.some(sm => sm.content === m.content && sm.senderId === m.senderId)
           );
 
@@ -2210,6 +2257,7 @@ export default function ChatsPage() {
           const serverIds = new Set(serverMsgs.map(m => m.id));
           const optimisticReal = prev.filter(m =>
             !m.id.startsWith('temp_') &&
+            !m.id.startsWith('failed_') &&
             !serverIds.has(m.id) &&
             m.senderId === userRef.current?.id
           );
@@ -2265,13 +2313,13 @@ export default function ChatsPage() {
           });
         }
       }, (error) => {
-        // Fallback: If client permissions restrict direct reads, activate fallback sync with sane interval
+        // Fallback: If client permissions restrict direct reads, activate fast fallback sync
         if (!pollTimer) {
           pollTimer = setInterval(() => {
             if (!document.hidden && activeConvIdRef.current === currentChatId) {
               fetchMessages(currentChatId, false, true);
             }
-          }, 4000);
+          }, 1200);
         }
       });
     } catch {
@@ -2280,20 +2328,22 @@ export default function ChatsPage() {
         if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }, 4000);
+      }, 1200);
     }
 
-    const handleFocus = () => {
-      if (activeConvIdRef.current === currentChatId) {
+    const handleFocusOrVisible = () => {
+      if (!document.hidden && activeConvIdRef.current === currentChatId) {
         fetchMessages(currentChatId, false, true);
       }
     };
-    window.addEventListener('focus', handleFocus);
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
 
     return () => {
       if (unsubscribe) unsubscribe();
       if (pollTimer) clearInterval(pollTimer);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
     };
   }, [activeConv?.id, fetchMessages, normalizeMessage, scrollToBottom]);
 
@@ -2360,7 +2410,7 @@ export default function ChatsPage() {
             if (!document.hidden) {
               fetchConversations();
             }
-          }, 8000);
+          }, 2500);
         }
       });
     } catch {
@@ -2368,7 +2418,7 @@ export default function ChatsPage() {
         if (!document.hidden) {
           fetchConversations();
         }
-      }, 8000);
+      }, 2500);
     }
 
     return () => {
@@ -2543,7 +2593,87 @@ export default function ChatsPage() {
 
     setTimeout(() => scrollToBottom('auto'), 20);
 
-    // 5. Deliver to server in background
+    // 5. Deliver to server in background with auto-retry and failed status tracking
+    let savedMsg: any = null;
+    let deliverySuccess = false;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch('/api/chat/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId: activeConv.id,
+            content,
+            replyTo: replyMessage?.id || undefined,
+          }),
+        });
+        if (res.ok) {
+          savedMsg = await res.json();
+          deliverySuccess = true;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Delivery attempt ${attempt + 1} failed:`, err);
+      }
+      if (attempt === 0 && !deliverySuccess) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    if (deliverySuccess && savedMsg) {
+      const normMsg = normalizeMessage(savedMsg);
+      setMessages(prev => {
+        if (activeConvIdRef.current !== activeConv.id) return prev;
+
+        const idx = prev.findIndex(m => m.id === tempId || (m.id.startsWith('temp_') && m.content === content && m.senderId === normMsg.senderId));
+        let updated: Message[];
+        if (idx !== -1) {
+          updated = [...prev];
+          updated[idx] = normMsg;
+        } else if (!prev.some(m => m.id === normMsg.id)) {
+          updated = [...prev, normMsg];
+          updated.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        } else {
+          return prev;
+        }
+        messagesRef.current = updated;
+        try {
+          setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      // Synchronize across open browser tabs / windows in 0ms!
+      syncChatMessageToSessionCaches(activeConv.id, normMsg);
+      emitSyncEvent('docspace_chat_message', normMsg);
+    } else {
+      // Mark optimistic message as failed so the user knows and can retry
+      setMessages(prev => {
+        const failedId = 'failed_' + tempId;
+        const updated = prev.map(m => m.id === tempId ? { ...m, id: failedId } : m);
+        messagesRef.current = updated;
+        try {
+          setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+  };
+
+  const handleRetryMessage = async (failedMsg: Message) => {
+    if (!activeConv || !user) return;
+    const content = failedMsg.content;
+    const oldId = failedMsg.id;
+
+    // Reset to temporary sending state
+    const tempId = 'temp_' + Date.now();
+    setMessages(prev => {
+      const updated = prev.map(m => m.id === oldId ? { ...m, id: tempId } : m);
+      messagesRef.current = updated;
+      return updated;
+    });
+
     try {
       const res = await fetch('/api/chat/message', {
         method: 'POST',
@@ -2551,38 +2681,32 @@ export default function ChatsPage() {
         body: JSON.stringify({
           chatId: activeConv.id,
           content,
-          replyTo: replyMessage?.id || undefined,
+          replyTo: failedMsg.replyTo || undefined,
         }),
       });
       if (res.ok) {
-        const savedMsg = await res.json();
-        const normMsg = normalizeMessage(savedMsg);
+        const saved = await res.json();
+        const normMsg = normalizeMessage(saved);
         setMessages(prev => {
-          if (activeConvIdRef.current !== activeConv.id) return prev;
-
-          // Try to replace the matching temp_ message
-          const idx = prev.findIndex(m => m.id === tempId || (m.id.startsWith('temp_') && m.content === content && m.senderId === normMsg.senderId));
+          const idx = prev.findIndex(m => m.id === tempId);
           let updated: Message[];
           if (idx !== -1) {
             updated = [...prev];
             updated[idx] = normMsg;
-          } else if (!prev.some(m => m.id === normMsg.id)) {
-            // Temp was already cleared by the snapshot but real message not there yet — add it
-            updated = [...prev, normMsg];
-            updated.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
           } else {
-            // Already in list (snapshot beat us to it), nothing to do
-            return prev;
+            updated = [...prev, normMsg];
           }
           messagesRef.current = updated;
-          try {
-            setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated));
-          } catch {}
+          try { setStoredItem(`cached_msgs_${activeConv.id}`, JSON.stringify(updated)); } catch {}
           return updated;
         });
+        syncChatMessageToSessionCaches(activeConv.id, normMsg);
+        emitSyncEvent('docspace_chat_message', normMsg);
+      } else {
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: oldId } : m));
       }
-    } catch (err) {
-      console.error('Error delivering message:', err);
+    } catch {
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: oldId } : m));
     }
   };
 
@@ -2644,6 +2768,8 @@ export default function ChatsPage() {
           try { setStoredItem('cached_conversations', JSON.stringify(sorted)); } catch {}
           return sorted;
         });
+        syncChatMessageToSessionCaches(activeConv.id, normMsg);
+        emitSyncEvent('docspace_chat_message', normMsg);
         setTimeout(() => scrollToBottom('auto'), 20);
       }
     } catch (err: any) {
@@ -4707,11 +4833,28 @@ export default function ChatsPage() {
                       <div className={`flex items-center gap-1.5 mb-1 text-[9px] text-slate-450 ${isOwn ? 'flex-row-reverse' : ''}`}>
                         <span className="font-bold">{msg.senderName}</span>
                         <span>{formatTime(msg.createdAt)}</span>
+                        {isOwn && msg.id.startsWith('temp_') && (
+                          <span className="text-[9px] text-amber-500 animate-pulse flex items-center gap-0.5 font-medium">
+                            <Clock className="h-2.5 w-2.5" /> Sending...
+                          </span>
+                        )}
+                        {isOwn && msg.id.startsWith('failed_') && (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryMessage(msg)}
+                            className="text-[9px] text-red-500 hover:text-red-600 flex items-center gap-0.5 font-semibold cursor-pointer underline hover:no-underline"
+                            title="Click to retry sending"
+                          >
+                            <AlertCircle className="h-2.5 w-2.5" /> Failed. Click to retry
+                          </button>
+                        )}
                       </div>
                       
                       <div className={`p-3 rounded-2xl text-xs relative border shadow-sm ${
                         isOwn ? 'rounded-tr-none font-medium' : 'rounded-tl-none'
-                      } ${isHighlighted 
+                      } ${msg.id.startsWith('failed_')
+                        ? 'bg-red-50/80 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200 ring-1 ring-red-400/30'
+                        : isHighlighted 
                         ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-500/30 shadow-md scale-[1.01]' 
                         : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border-slate-200/50 dark:border-slate-800'
                       }`}>

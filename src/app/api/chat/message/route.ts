@@ -87,7 +87,8 @@ export async function POST(request: NextRequest) {
       content || '',
       type || 'text',
       attachments || [],
-      replyTo || null
+      replyTo || null,
+      access.convo
     );
 
     return NextResponse.json(savedMsg, { status: 201 });

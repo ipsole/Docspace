@@ -122,6 +122,9 @@ export async function safeWriteFile(filePath: string, content: string): Promise<
       await firestoreSet(parsed.collection, parsed.docId, data);
     } catch (err) {
       console.error(`Firestore sync write error [${parsed.collection}/${parsed.docId}]:`, err);
+      if (process.env.VERCEL) {
+        throw err;
+      }
     }
     // On Vercel cloud serverless with read-only filesystem, avoid throwing EROFS on local disk writes
     if (process.env.VERCEL) {

@@ -246,21 +246,26 @@ export async function sendMessage(
   content: string,
   type: Message['type'] = 'text',
   attachments: Message['attachments'] = [],
-  replyTo: string | null = null
+  replyTo: string | null = null,
+  cachedConvo?: Conversation
 ): Promise<Message> {
   await ensureDirs();
 
-  // Verify sender membership in workspace
-  const hasAccess = await checkWorkspaceAccess(workspaceId, { id: senderId });
-  if (!hasAccess) {
-    throw new Error('Forbidden: Sender is not a member of this workspace');
-  }
-  const workspaceMembers = await listWorkspaceMembers(workspaceId);
+  let convo: Conversation;
+  let workspaceMembers: any[] = [];
 
-  // Verify chat exists
-  const convoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
-  if (!convoContent) throw new Error('Conversation not found');
-  const convo = JSON.parse(convoContent) as Conversation;
+  if (cachedConvo) {
+    convo = cachedConvo;
+  } else {
+    // Verify sender membership in workspace
+    const hasAccess = await checkWorkspaceAccess(workspaceId, { id: senderId });
+    if (!hasAccess) {
+      throw new Error('Forbidden: Sender is not a member of this workspace');
+    }
+    const convoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
+    if (!convoContent) throw new Error('Conversation not found');
+    convo = JSON.parse(convoContent) as Conversation;
+  }
 
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -283,21 +288,26 @@ export async function sendMessage(
   return enqueueTask('chat-messages-' + chatId, async () => {
     const messages = await loadMessages(chatId);
     messages.push(message);
-    await safeWriteFile(path.join(MSG_DIR, `${chatId}.json`), JSON.stringify(messages, null, 2));
 
-    // Update conversation summary with fresh state
-    const freshConvoContent = await safeReadFile(path.join(CONV_DIR, `${chatId}.json`));
-    const targetConvo = freshConvoContent ? (JSON.parse(freshConvoContent) as Conversation) : convo;
-    targetConvo.updatedAt = now;
-    targetConvo.lastMessage = {
+    // Update conversation summary
+    convo.updatedAt = now;
+    convo.lastMessage = {
       id,
       senderId,
       content: type === 'attachment' ? 'Attachment' : content,
       createdAt: now
     };
-    await safeWriteFile(path.join(CONV_DIR, `${chatId}.json`), JSON.stringify(targetConvo, null, 2));
 
-    // Emit event to all workspace members if it's a channel, or to participants if DM
+    // Concurrently write both messages and updated conversation to Firestore / disk
+    await Promise.all([
+      safeWriteFile(path.join(MSG_DIR, `${chatId}.json`), JSON.stringify(messages, null, 2)),
+      safeWriteFile(path.join(CONV_DIR, `${chatId}.json`), JSON.stringify(convo, null, 2)),
+    ]);
+
+    // Emit event to workspace members if channel, or participants if DM/group
+    if (convo.isChannel && workspaceMembers.length === 0) {
+      workspaceMembers = await listWorkspaceMembers(workspaceId).catch(() => []);
+    }
     const targetParticipants = convo.isChannel ? workspaceMembers.map(m => m.userId) : convo.participants;
     chatEmitter.emit('message_sent', { message, participants: targetParticipants });
 
