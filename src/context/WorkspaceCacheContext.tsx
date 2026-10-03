@@ -218,22 +218,40 @@ export function WorkspaceCacheProvider({ children }: { children: React.ReactNode
       return;
     }
 
+    let hasInvoices = false;
+    let hasClients = false;
+    let hasProjects = false;
+
     try {
       const cInvoices = sessionStorage.getItem(`cached_invoices_${wsId}`);
-      if (cInvoices) setInvoices(JSON.parse(cInvoices));
+      if (cInvoices) {
+        const parsed = JSON.parse(cInvoices);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setInvoices(parsed);
+          hasInvoices = true;
+        }
+      }
 
       const cClients = sessionStorage.getItem(`cached_clients_${wsId}`);
-      if (cClients) setClients(JSON.parse(cClients));
+      if (cClients) {
+        const parsed = JSON.parse(cClients);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setClients(parsed);
+          hasClients = true;
+        }
+      }
 
       const cProjects = sessionStorage.getItem(`cached_projects_${wsId}`);
-      if (cProjects) setProjects(JSON.parse(cProjects));
+      if (cProjects) {
+        const parsed = JSON.parse(cProjects);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProjects(parsed);
+          hasProjects = true;
+        }
+      }
     } catch {}
 
-    // Initial load: fetch once if cache was empty
-    const hasInvoices = !!sessionStorage.getItem(`cached_invoices_${wsId}`);
-    const hasClients = !!sessionStorage.getItem(`cached_clients_${wsId}`);
-    const hasProjects = !!sessionStorage.getItem(`cached_projects_${wsId}`);
-
+    // Initial load: fetch if cache was empty or invalid
     if (!hasInvoices) fetchInvoices(false);
     if (!hasClients) fetchClients(false);
     if (!hasProjects) fetchProjects(false);

@@ -926,7 +926,7 @@ export default function ClientsPage() {
   const handleMoveClientToTag = async (client: Client, targetTag: string) => {
     if (!activeWorkspace) return;
     const currentTags = client.tags || [];
-    const isTicketCategory = (t: string) => t.toLowerCase().includes('ticket');
+    const isTicketCategory = (t: string) => (t || '').toLowerCase().includes('ticket');
     let nextTags: string[];
 
     if (isTicketCategory(targetTag)) {
@@ -964,7 +964,7 @@ export default function ClientsPage() {
   const handleCreateNewTag = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (customTags.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+    if (customTags.some(t => (t || '').toLowerCase() === trimmed.toLowerCase())) {
       alert('This tag already exists');
       return;
     }
@@ -1066,11 +1066,7 @@ export default function ClientsPage() {
     if (!activeWorkspace) return;
     const wsId = activeWorkspace.id;
 
-    const hasCachedClients = Array.isArray(cachedClients) && cachedClients.length > 0;
-    const hasCachedProjects = Array.isArray(cachedProjects) && cachedProjects.length > 0;
-    const hasCachedInvoices = Array.isArray(cachedInvoices) && cachedInvoices.length > 0;
-
-    if (!hasCachedClients && !force) {
+    if (clients.length === 0 && !force) {
       setLoading(true);
     }
 
@@ -1081,60 +1077,69 @@ export default function ClientsPage() {
         refreshInvoices();
       }
 
-      const promises: [
-        Promise<Response | null>,
-        Promise<Response | null>,
-        Promise<Response | null>,
-        Promise<Response | null>,
-        Promise<Response | null>
-      ] = [
-        (!hasCachedClients || force) ? fetch(`/api/crm/clients?workspaceId=${wsId}`) : Promise.resolve(null),
-        (!hasCachedProjects || force) ? fetch(`/api/projects?workspaceId=${wsId}`) : Promise.resolve(null),
+      const [clientsRes, projectsRes, tasksRes, invoicesRes, eventsRes] = await Promise.all([
+        fetch(`/api/crm/clients?workspaceId=${wsId}`),
+        fetch(`/api/projects?workspaceId=${wsId}`),
         fetch(`/api/projects/tasks?workspaceId=${wsId}`),
-        (!hasCachedInvoices || force) ? fetch(`/api/crm/invoices?workspaceId=${wsId}`) : Promise.resolve(null),
+        fetch(`/api/crm/invoices?workspaceId=${wsId}`),
         fetch(`/api/calendar?workspaceId=${wsId}`),
-      ];
-
-      const [clientsRes, projectsRes, tasksRes, invoicesRes, eventsRes] = await Promise.all(promises);
+      ]);
 
       if (clientsRes && clientsRes.ok) {
         const clientsData = await clientsRes.json();
-        setClients(clientsData);
-        try {
-          sessionStorage.setItem('cached_crm_clients', JSON.stringify(clientsData));
-        } catch {}
+        if (Array.isArray(clientsData)) {
+          setClients(clientsData);
+          try {
+            sessionStorage.setItem('cached_crm_clients', JSON.stringify(clientsData));
+            sessionStorage.setItem(`cached_clients_${wsId}`, JSON.stringify(clientsData));
+          } catch {}
 
-        // Restore or maintain selected client
-        const savedClientId = typeof window !== 'undefined' ? sessionStorage.getItem('last_active_client_id') : null;
-        setSelectedClientId(prev => {
-          if (prev && clientsData.some((c: any) => c.id === prev)) return prev;
-          if (savedClientId && clientsData.some((c: any) => c.id === savedClientId)) return savedClientId;
-          if (clientsData.length > 0) {
-            const firstActive = clientsData.find((c: any) => c.status !== 'inactive');
-            return firstActive ? firstActive.id : clientsData[0].id;
-          }
-          return '';
-        });
+          // Restore or maintain selected client
+          const savedClientId = typeof window !== 'undefined' ? sessionStorage.getItem('last_active_client_id') : null;
+          setSelectedClientId(prev => {
+            if (prev && clientsData.some((c: any) => c.id === prev)) return prev;
+            if (savedClientId && clientsData.some((c: any) => c.id === savedClientId)) return savedClientId;
+            if (clientsData.length > 0) {
+              const firstActive = clientsData.find((c: any) => c.status !== 'inactive');
+              return firstActive ? firstActive.id : clientsData[0].id;
+            }
+            return '';
+          });
+        }
       }
       if (projectsRes && projectsRes.ok) {
         const d = await projectsRes.json();
-        setProjects(d);
-        try { sessionStorage.setItem('cached_crm_projects', JSON.stringify(d)); } catch {}
+        if (Array.isArray(d)) {
+          setProjects(d);
+          try {
+            sessionStorage.setItem('cached_crm_projects', JSON.stringify(d));
+            sessionStorage.setItem(`cached_projects_${wsId}`, JSON.stringify(d));
+          } catch {}
+        }
       }
       if (tasksRes && tasksRes.ok) {
         const d = await tasksRes.json();
-        setTasks(d);
-        try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(d)); } catch {}
+        if (Array.isArray(d)) {
+          setTasks(d);
+          try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(d)); } catch {}
+        }
       }
       if (invoicesRes && invoicesRes.ok) {
         const d = await invoicesRes.json();
-        setInvoices(d);
-        try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(d)); } catch {}
+        if (Array.isArray(d)) {
+          setInvoices(d);
+          try {
+            sessionStorage.setItem('cached_crm_invoices', JSON.stringify(d));
+            sessionStorage.setItem(`cached_invoices_${wsId}`, JSON.stringify(d));
+          } catch {}
+        }
       }
       if (eventsRes && eventsRes.ok) {
         const d = await eventsRes.json();
-        setEvents(d);
-        try { sessionStorage.setItem('cached_crm_events', JSON.stringify(d)); } catch {}
+        if (Array.isArray(d)) {
+          setEvents(d);
+          try { sessionStorage.setItem('cached_crm_events', JSON.stringify(d)); } catch {}
+        }
       }
 
     } catch (err) {
@@ -1257,11 +1262,11 @@ export default function ClientsPage() {
       const query = clientSearch.toLowerCase();
       if (!query) return true;
       return (
-        c.companyName.toLowerCase().includes(query) ||
-        c.contactPerson.toLowerCase().includes(query) ||
-        c.email.toLowerCase().includes(query) ||
-        c.industry.toLowerCase().includes(query) ||
-        (c.tags && c.tags.some(t => t.toLowerCase().includes(query)))
+        (c.companyName || '').toLowerCase().includes(query) ||
+        (c.contactPerson || '').toLowerCase().includes(query) ||
+        (c.email || '').toLowerCase().includes(query) ||
+        (c.industry || '').toLowerCase().includes(query) ||
+        (Array.isArray(c.tags) && c.tags.some(t => (t || '').toLowerCase().includes(query)))
       );
     });
 
@@ -1273,7 +1278,7 @@ export default function ClientsPage() {
         return timeB - timeA;
       }
       if (sortBasis === 'alphabet') {
-        return a.companyName.localeCompare(b.companyName);
+        return (a.companyName || '').localeCompare(b.companyName || '');
       }
       if (sortBasis === 'custom') {
         // Tagged clients prioritized, active first, then most recently added
@@ -1455,13 +1460,16 @@ export default function ClientsPage() {
 
   const linkedEvents = useMemo(() => {
     if (!activeClient) return [];
-    const contact = activeClient.contactPerson.toLowerCase();
-    const company = activeClient.companyName.toLowerCase();
+    const contact = (activeClient.contactPerson || '').trim().toLowerCase();
+    const company = (activeClient.companyName || '').trim().toLowerCase();
     return events.filter(e => {
       if (e.clientId === activeClient.id) return true;
-      const title = e.title.toLowerCase();
+      const title = (e.title || '').toLowerCase();
       const desc = (e.description || '').toLowerCase();
-      return title.includes(contact) || title.includes(company) || desc.includes(contact) || desc.includes(company);
+      return (
+        (contact && (title.includes(contact) || desc.includes(contact))) ||
+        (company && (title.includes(company) || desc.includes(company)))
+      );
     });
   }, [events, activeClient]);
 
@@ -4683,9 +4691,9 @@ export default function ClientsPage() {
                   if (!syncSearchTerm.trim()) return true;
                   const term = syncSearchTerm.toLowerCase();
                   return (
-                    c.companyName.toLowerCase().includes(term) ||
-                    c.contactPerson.toLowerCase().includes(term) ||
-                    c.email.toLowerCase().includes(term)
+                    (c.companyName || '').toLowerCase().includes(term) ||
+                    (c.contactPerson || '').toLowerCase().includes(term) ||
+                    (c.email || '').toLowerCase().includes(term)
                   );
                 })
                 .map(cli => {

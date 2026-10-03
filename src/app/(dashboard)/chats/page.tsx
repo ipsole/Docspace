@@ -5007,16 +5007,16 @@ export default function ChatsPage() {
                       isOwn ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
                     }`}>
                       {msg.senderAvatar ? (
-                        <img src={msg.senderAvatar} alt={msg.senderName} className="h-full w-full object-cover" />
+                        <img src={msg.senderAvatar} alt={msg.senderName || 'Sender'} className="h-full w-full object-cover" />
                       ) : (
-                        msg.senderName[0]?.toUpperCase() ?? '?'
+                        (msg.senderName || '?')[0]?.toUpperCase() ?? '?'
                       )}
                     </div>
 
                     {/* Bubble */}
                     <div className="max-w-[70%] flex flex-col">
                       <div className={`flex items-center gap-1.5 mb-1 text-[9px] text-slate-450 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                        <span className="font-bold">{msg.senderName}</span>
+                        <span className="font-bold">{msg.senderName || 'Unknown'}</span>
                         <span>{formatTime(msg.createdAt)}</span>
                         {isOwn && msg.id.startsWith('temp_') && (
                           <span className="text-[9px] text-amber-500 animate-pulse flex items-center gap-0.5 font-medium">
@@ -5961,7 +5961,7 @@ export default function ChatsPage() {
                               }`}
                             >
                               <div className="h-7 w-7 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden flex items-center justify-center font-bold text-xs shrink-0">
-                                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} className="h-full w-full object-cover" /> : (u.displayName || u.username)[0]?.toUpperCase()}
+                                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username || 'User'} className="h-full w-full object-cover" /> : ((u.displayName || u.username || '?')[0]?.toUpperCase() ?? '?')}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs font-bold text-slate-850 dark:text-slate-100 truncate">{u.displayName || u.username}</p>
@@ -6154,9 +6154,9 @@ export default function ChatsPage() {
                     <div className="relative h-18 w-18 mx-auto">
                       <div className="h-18 w-18 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 flex items-center justify-center text-2xl font-black overflow-hidden shadow-md">
                         {otherUser.avatar ? (
-                          <img src={otherUser.avatar} alt={otherUser.displayName} className="h-full w-full object-cover" />
+                          <img src={otherUser.avatar} alt={otherUser.displayName || otherUser.username || 'User'} className="h-full w-full object-cover" />
                         ) : (
-                          otherUser.displayName[0]?.toUpperCase()
+                          (otherUser.displayName || otherUser.username || '?')[0]?.toUpperCase() ?? '?'
                         )}
                       </div>
                       <span className={`absolute bottom-0.5 right-0.5 block h-4 w-4 rounded-full border-2 border-white dark:border-slate-900 ${
@@ -6355,9 +6355,9 @@ export default function ChatsPage() {
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="h-6 w-6 rounded-full bg-slate-205 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-slate-650 dark:text-slate-355 overflow-hidden shrink-0">
                                     {mUser.avatar ? (
-                                      <img src={mUser.avatar} alt={mUser.displayName} className="h-full w-full object-cover" />
+                                      <img src={mUser.avatar} alt={mUser.displayName || mUser.username || 'Member'} className="h-full w-full object-cover" />
                                     ) : (
-                                      mUser.displayName[0]?.toUpperCase()
+                                      (mUser.displayName || mUser.username || '?')[0]?.toUpperCase() ?? '?'
                                     )}
                                   </div>
                                   <span className="font-semibold text-slate-750 dark:text-slate-250 truncate">
