@@ -391,6 +391,21 @@ export default function InvoicesPage() {
   const [sheetSyncFeedback, setSheetSyncFeedback] = useState<string | null>(null);
   const syncDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Google Drive & PDF Export States
+  const [gdriveStatus, setGdriveStatus] = useState<{
+    connected: boolean;
+    invoiceFolderName?: string;
+    invoiceFolderId?: string;
+  } | null>(null);
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [driveUploadSuccess, setDriveUploadSuccess] = useState<{
+    invoiceId: string;
+    webViewLink?: string;
+    folderName?: string;
+  } | null>(null);
+  const [driveUploadError, setDriveUploadError] = useState<string | null>(null);
+
   // Invoice Multi-Select Sync Modal States
   const [showInvoiceSyncModal, setShowInvoiceSyncModal] = useState(false);
   const [selectedInvoiceSyncIds, setSelectedInvoiceSyncIds] = useState<string[]>([]);
@@ -483,6 +498,26 @@ export default function InvoicesPage() {
       } catch {}
     }
   }, [filterClientId, filterMonth, filterCategory, filterGstTreatment, filterPaymentSource, sortInvoicesBy, activeDocTypeTab, mounted]);
+
+  // Fetch Google Drive status and destination folder configuration
+  useEffect(() => {
+    fetch('/api/storage/google/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setGdriveStatus(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Clear or reset Drive upload errors/states when switching previewed invoices
+  useEffect(() => {
+    setDriveUploadError(null);
+    if (driveUploadSuccess && driveUploadSuccess.invoiceId !== selectedInvoice?.id) {
+      setDriveUploadSuccess(null);
+    }
+  }, [selectedInvoice]);
 
   useEffect(() => {
     if (!activeWorkspace) return;
@@ -2658,6 +2693,154 @@ ${JSON.stringify(payload, null, 2)}
     URL.revokeObjectURL(a.href);
   };
 
+  // Generate high-resolution PDF Blob from invoice HTML
+  const generateInvoicePdfBlob = async (inv: Invoice, tpl: 'classic' | 'modern' | 'compact'): Promise<{ blob: Blob; fileName: string }> => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: html2canvas } = await import('html2canvas');
+
+    const html = buildInvoiceHTML(inv, tpl, true);
+
+    // Render off-screen inside an isolated iframe so styles, layouts, and fonts render faithfully
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.top = '-10000px';
+    iframe.style.left = '-10000px';
+    iframe.style.width = '794px';
+    iframe.style.height = '1123px';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-99999';
+    document.body.appendChild(iframe);
+
+    try {
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iframeDoc) {
+        throw new Error('Unable to create PDF rendering context');
+      }
+
+      iframeDoc.open();
+      iframeDoc.write(html);
+      iframeDoc.close();
+
+      // Give styles & fonts a moment to layout
+      await new Promise(res => setTimeout(res, 300));
+
+      const targetElement = (iframeDoc.querySelector('.page-sheet') as HTMLElement) || iframeDoc.body;
+
+      const canvas = await html2canvas(targetElement, {
+        scale: 2, // 300 DPI high clarity
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 794,
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
+      const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // First page
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      // Handle multiple pages if invoice content overflows A4
+      while (heightLeft > 2) {
+        position -= pdfHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const blob = pdf.output('blob');
+      const cleanInvNum = (inv.invoiceNumber || 'Invoice').replace(/[/\\?%*:|"<>]/g, '_');
+      const fileName = `${cleanInvNum}.pdf`;
+      return { blob, fileName };
+    } finally {
+      if (iframe.parentNode) {
+        document.body.removeChild(iframe);
+      }
+    }
+  };
+
+  // Actions trigger: Direct download of invoice PDF
+  const handleDownloadPdfDirect = async (inv: Invoice) => {
+    setIsDownloadingPdf(true);
+    try {
+      const { blob, fileName } = await generateInvoicePdfBlob(inv, previewTpl);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err: any) {
+      console.error('Failed to generate PDF:', err);
+      // Fallback to browser print dialog
+      handlePrintPdf(inv);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  // Actions trigger: Upload invoice PDF directly to Google Drive
+  const handleUploadInvoiceToDrive = async (inv: Invoice) => {
+    setIsUploadingToDrive(true);
+    setDriveUploadSuccess(null);
+    setDriveUploadError(null);
+
+    try {
+      // 1. Generate high quality PDF Blob
+      const { blob, fileName } = await generateInvoicePdfBlob(inv, previewTpl);
+
+      // 2. Prepare FormData
+      const formData = new FormData();
+      formData.append('file', blob, fileName);
+      formData.append('name', fileName);
+      formData.append('folderCategory', 'invoices');
+      formData.append('description', `Invoice ${inv.invoiceNumber} for ${inv.clientName || 'Client'}`);
+      if (activeWorkspace?.id) {
+        formData.append('workspaceId', activeWorkspace.id);
+      }
+      if (gdriveStatus?.invoiceFolderId) {
+        formData.append('folderId', gdriveStatus.invoiceFolderId);
+      }
+
+      // 3. Post to Drive upload route
+      const res = await fetch('/api/storage/google/files', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to upload invoice to Google Drive');
+      }
+
+      setDriveUploadSuccess({
+        invoiceId: inv.id,
+        webViewLink: data.url || data.downloadUrl,
+        folderName: gdriveStatus?.invoiceFolderName || 'Invoices',
+      });
+    } catch (err: any) {
+      console.error('Google Drive invoice upload failed:', err);
+      setDriveUploadError(err.message || 'Failed to upload invoice to Google Drive');
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
   if (!activeWorkspace) {
     return (
       <div className="flex h-full items-center justify-center p-8">
@@ -4540,8 +4723,103 @@ GSTR-1 Segregation:
 
                   {/* Invoice Actions */}
                   <div className="space-y-2 pt-2 border-t border-slate-150/40 dark:border-slate-800/40">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Invoice Actions</p>
-                    
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Invoice Actions</p>
+                      {gdriveStatus?.invoiceFolderName && (
+                        <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium truncate max-w-[130px]" title={`Google Drive Target: ${gdriveStatus.invoiceFolderName}`}>
+                          📁 {gdriveStatus.invoiceFolderName}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Upload / Save to Google Drive Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleUploadInvoiceToDrive(selectedInvoice)}
+                      disabled={isUploadingToDrive || isDownloadingPdf}
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-xs cursor-pointer ${
+                        driveUploadSuccess?.invoiceId === selectedInvoice.id
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
+                      }`}
+                      title={
+                        gdriveStatus?.connected
+                          ? `Upload PDF to Google Drive (${gdriveStatus.invoiceFolderName || 'Invoices'} folder)`
+                          : 'Upload PDF to Google Drive'
+                      }
+                    >
+                      {isUploadingToDrive ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600 dark:text-emerald-400" />
+                          <span>Uploading to Drive...</span>
+                        </>
+                      ) : driveUploadSuccess?.invoiceId === selectedInvoice.id ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-white" />
+                          <span>Saved to Drive</span>
+                        </>
+                      ) : (
+                        <>
+                          <CloudUpload className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                          <span>Save to Google Drive</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Google Drive Upload Success Alert & Open Link */}
+                    {driveUploadSuccess?.invoiceId === selectedInvoice.id && (
+                      <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl space-y-1.5 animate-fade-in">
+                        <div className="flex items-center justify-between text-[11px] text-emerald-800 dark:text-emerald-200">
+                          <span className="font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Uploaded to Drive
+                          </span>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                            /{driveUploadSuccess.folderName || 'Invoices'}
+                          </span>
+                        </div>
+                        {driveUploadSuccess.webViewLink && (
+                          <a
+                            href={driveUploadSuccess.webViewLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            <span>Open in Google Drive</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Google Drive Upload Error */}
+                    {driveUploadError && (
+                      <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-xl text-[11px] text-rose-700 dark:text-rose-300 flex items-start gap-1.5">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>{driveUploadError}</span>
+                      </div>
+                    )}
+
+                    {/* Download PDF Direct Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPdfDirect(selectedInvoice)}
+                      disabled={isDownloadingPdf || isUploadingToDrive}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-2xs cursor-pointer"
+                      title="Download PDF directly to your device"
+                    >
+                      {isDownloadingPdf ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin text-slate-600 dark:text-slate-300" />
+                          <span>Generating PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                          <span>Download PDF</span>
+                        </>
+                      )}
+                    </button>
+
                     {/* Print PDF Button */}
                     <button
                       type="button"

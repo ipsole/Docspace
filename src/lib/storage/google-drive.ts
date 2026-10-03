@@ -25,6 +25,7 @@ const FOLDER_STRUCTURE: { key: keyof GoogleDriveFolderMap; name: string }[] = [
   { key: 'deliverables',  name: 'Deliverables'  },
   { key: 'attachments',   name: 'Attachments'   },
   { key: 'archives',      name: 'Archives'      },
+  { key: 'invoices',      name: 'Invoices'      },
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────
@@ -241,6 +242,46 @@ export async function initializeFolderStructure(accessToken: string): Promise<Go
   }
 
   return folderMap;
+}
+
+/**
+ * Returns the effective destination folder for invoice PDFs,
+ * automatically creating an 'Invoices' folder if not yet mapped.
+ */
+export async function getEffectiveInvoiceFolder(accessToken?: string): Promise<{ id: string; name: string }> {
+  const config = await getGDriveConfig();
+  if (!config) throw new Error('Google Drive configuration not found');
+
+  if (config.invoiceFolderId) {
+    return {
+      id: config.invoiceFolderId,
+      name: config.invoiceFolderName || 'Invoices',
+    };
+  }
+
+  if (config.folders?.invoices) {
+    return {
+      id: config.folders.invoices,
+      name: 'Invoices',
+    };
+  }
+
+  const token = accessToken || await getGDriveAccessToken();
+  const parentId = config.folders?.docspace || config.rootFolderId;
+  const invoicesFolderId = await createFolderIfMissing('Invoices', parentId, token);
+
+  const updatedConfig: GoogleDriveConfig = {
+    ...config,
+    folders: {
+      ...config.folders,
+      invoices: invoicesFolderId,
+    },
+    invoiceFolderId: invoicesFolderId,
+    invoiceFolderName: 'Invoices',
+  };
+  await saveGDriveConfig(updatedConfig);
+
+  return { id: invoicesFolderId, name: 'Invoices' };
 }
 
 // ─── File operations ──────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   getGDriveAccessToken,
   getGDriveConfig,
+  getEffectiveInvoiceFolder,
   uploadFileToDrive,
   createDriveResumableSession,
   deleteFile as driveDeleteFile,
@@ -122,8 +123,15 @@ export async function POST(req: NextRequest) {
     // Pick the right Drive folder: support direct folderId or category mapping
     const specifiedFolderId = formData.get('folderId') as string | null;
     const folders = config.folders ?? {};
-    const folderId: string =
-      specifiedFolderId || (folders as any)[folderCategory] || folders.attachments || config.rootFolderId || '';
+    let folderId: string = specifiedFolderId || (folders as any)[folderCategory] || '';
+
+    if (!folderId && (folderCategory === 'invoices' || customName.toLowerCase().endsWith('.pdf'))) {
+      const eff = await getEffectiveInvoiceFolder();
+      folderId = eff.id;
+    }
+    if (!folderId) {
+      folderId = folders.attachments || config.rootFolderId || '';
+    }
 
     if (!folderId) {
       return NextResponse.json({ error: 'Drive folder not found. Reconnect Google Drive.' }, { status: 500 });

@@ -9,7 +9,7 @@ import {
   Settings, User, Bell, Shield, Users, Trash2,
   Save, Loader2, Check, Eye, EyeOff, LogOut, AlertCircle, Camera, Database,
   Plus, Edit2, X, CheckCircle2, ShieldCheck, UserPlus, Search, Lock, SlidersHorizontal, Mail,
-  AlertTriangle, ShieldAlert, Cloud, RefreshCw, ExternalLink, Folder, FolderPlus, FileText, HardDrive
+  AlertTriangle, ShieldAlert, Cloud, RefreshCw, ExternalLink, Folder, FolderPlus, FileText, HardDrive, Receipt
 } from 'lucide-react';
 import StorageRecordsSection from '@/components/StorageRecordsSection';
 
@@ -165,6 +165,8 @@ export default function SettingsPage() {
     connectedByEmail?: string;
     folders?: Record<string, string>;
     rootFolderId?: string;
+    invoiceFolderId?: string;
+    invoiceFolderName?: string;
     quota?: {
       usageBytes: number;
       limitBytes: number | null;
@@ -184,6 +186,8 @@ export default function SettingsPage() {
   const [gdriveFilesList, setGdriveFilesList] = useState<any[]>([]);
   const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
   const [deletingDriveItem, setDeletingDriveItem] = useState<string | null>(null);
+  const [savingInvoiceFolder, setSavingInvoiceFolder] = useState(false);
+  const [selectedInvoiceFolderId, setSelectedInvoiceFolderId] = useState<string>('');
 
   useEffect(() => {
     setUsername(user?.username ?? '');
@@ -311,6 +315,47 @@ export default function SettingsPage() {
       setGdriveMsg({ type: 'error', text: err.message || 'Failed to delete file' });
     } finally {
       setDeletingDriveItem(null);
+    }
+  };
+
+  useEffect(() => {
+    if (gdriveConfig?.invoiceFolderId) {
+      setSelectedInvoiceFolderId(gdriveConfig.invoiceFolderId);
+    } else if (gdriveConfig?.folders?.invoices) {
+      setSelectedInvoiceFolderId(gdriveConfig.folders.invoices);
+    }
+  }, [gdriveConfig]);
+
+  const handleUpdateInvoiceFolder = async (folderId: string) => {
+    setSelectedInvoiceFolderId(folderId);
+    setSavingInvoiceFolder(true);
+    setGdriveMsg(null);
+    try {
+      const folderObj = gdriveFoldersList.find((f: any) => f.id === folderId);
+      const folderName = folderObj?.name || 'Invoices';
+      const res = await fetch('/api/storage/google/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceFolderId: folderId,
+          invoiceFolderName: folderName,
+        }),
+      });
+      if (res.ok) {
+        setGdriveConfig(prev => prev ? ({
+          ...prev,
+          invoiceFolderId: folderId,
+          invoiceFolderName: folderName,
+        }) : prev);
+        setGdriveMsg({ type: 'success', text: `Invoice PDF destination folder updated to "${folderName}".` });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setGdriveMsg({ type: 'error', text: err.error || 'Failed to update destination folder' });
+      }
+    } catch (err: any) {
+      setGdriveMsg({ type: 'error', text: err.message || 'Failed to update destination folder' });
+    } finally {
+      setSavingInvoiceFolder(false);
     }
   };
 
@@ -1521,6 +1566,51 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Invoice PDF Destination Folder Selector */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-200/50 dark:border-emerald-800/40 shrink-0 mt-0.5">
+                        <Receipt className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          Invoice PDF Destination Folder
+                          {savingInvoiceFolder && <Loader2 className="h-3 w-3 animate-spin text-emerald-600" />}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Select the Google Drive folder where generated invoice PDFs should be uploaded.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedInvoiceFolderId}
+                        onChange={(e) => handleUpdateInvoiceFolder(e.target.value)}
+                        disabled={savingInvoiceFolder || loadingDriveFolders}
+                        aria-label="Invoice destination folder"
+                        className="text-xs font-semibold px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer min-w-[180px]"
+                      >
+                        <option value="">Default (Docspace / Invoices)</option>
+                        {gdriveFoldersList.map((folder: any) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {gdriveConfig?.invoiceFolderName && (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400">Current Target Folder:</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Folder className="h-3 w-3" />
+                        {gdriveConfig.invoiceFolderName}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Folder Management Section */}
                 <div>

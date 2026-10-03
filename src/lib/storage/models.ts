@@ -252,6 +252,7 @@ export interface GoogleDriveFolderMap {
   deliverables?: string;
   attachments?: string;
   archives?: string;
+  invoices?: string;
 }
 
 export interface GoogleDriveConfig {
@@ -262,6 +263,8 @@ export interface GoogleDriveConfig {
   connectedByUserId?: string;
   rootFolderId?: string;
   folders?: GoogleDriveFolderMap;
+  invoiceFolderId?: string;
+  invoiceFolderName?: string;
   lastError?: string;
   lastVerifiedAt?: string;
   /** Server-side only — refresh token for the central Drive account. NEVER send to the browser. */
@@ -277,7 +280,7 @@ export interface GoogleDriveFileRecord {
   googleDriveFolderId?: string;
   googleDriveWebViewLink?: string;
   googleDriveDownloadLink?: string;
-  folderCategory?: 'attachments' | 'projects' | 'clients' | 'assets' | 'deliverables' | 'archives';
+  folderCategory?: 'attachments' | 'projects' | 'clients' | 'assets' | 'deliverables' | 'archives' | 'invoices';
   projectId?: string | null;
   clientId?: string | null;
   chatId?: string | null;
