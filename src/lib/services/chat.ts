@@ -47,10 +47,14 @@ export async function listConversations(
     const rawWorkspaceConvos = await firestoreQuery<StoredConversation>('conversations', 'workspaceId', workspaceId);
     const convos: Conversation[] = [];
     for (const raw of rawWorkspaceConvos) {
-      const convo = await normalizeConversationRecord(raw);
-      const isWorkspaceShared = convo.isChannel || convo.isGroup || Boolean(convo.clientId);
-      if (isWorkspaceShared || convo.participants.includes(userId)) {
-        convos.push(convo);
+      try {
+        const convo = await normalizeConversationRecord(raw);
+        const isWorkspaceShared = convo.isChannel || convo.isGroup || Boolean(convo.clientId);
+        if (isWorkspaceShared || (convo.participants && convo.participants.includes(userId)) || role === 'admin') {
+          convos.push(convo);
+        }
+      } catch (normErr) {
+        console.warn('Skipping unparsable conversation record:', raw?.id, normErr);
       }
     }
     const sorted = sortConvosByActivity(convos);

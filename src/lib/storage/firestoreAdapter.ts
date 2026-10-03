@@ -304,7 +304,10 @@ export async function firestoreQuery<T = any>(
       if (Array.isArray(unwrapped)) {
         results.push(...unwrapped);
       } else {
-        results.push(unwrapped as T);
+        const item = (unwrapped && typeof unwrapped === 'object' && !unwrapped.id)
+          ? { ...unwrapped, id: docSnap.id }
+          : unwrapped;
+        results.push(item as T);
       }
     });
 

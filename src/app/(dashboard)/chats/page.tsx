@@ -752,20 +752,21 @@ export default function ChatsPage() {
 
   const normalizeConversation = useCallback((conv: ApiConversation, userMap?: any): Conversation => {
     const map = (userMap && typeof userMap === 'object' && !Array.isArray(userMap)) ? userMap : usersByIdRef.current;
-    const memberNames = conv.participants.reduce<Record<string, string>>((acc, id) => {
+    const participantsList = Array.isArray(conv?.participants) ? conv.participants : [];
+    const memberNames = participantsList.reduce<Record<string, string>>((acc, id) => {
       const profile = map[id];
       acc[id] = profile?.displayName || profile?.username || 'Unknown';
       return acc;
     }, {});
 
     const currentUserId = userRef.current?.id;
-    const lastReadStr = (typeof window !== 'undefined' && currentUserId)
+    const lastReadStr = (typeof window !== 'undefined' && currentUserId && conv?.id)
       ? getStoredItem(`chat_last_read_${currentUserId}_${conv.id}`)
       : null;
-    const lastMsgTime = conv.lastMessage?.createdAt ? new Date(conv.lastMessage.createdAt).getTime() : 0;
+    const lastMsgTime = conv?.lastMessage?.createdAt ? new Date(conv.lastMessage.createdAt).getTime() : 0;
     const lastReadTime = lastReadStr ? new Date(lastReadStr).getTime() : 0;
-    const isSentByMe = Boolean(conv.lastMessage?.senderId && currentUserId && conv.lastMessage.senderId === currentUserId);
-    const isActive = activeConvIdRef.current === conv.id;
+    const isSentByMe = Boolean(conv?.lastMessage?.senderId && currentUserId && conv.lastMessage.senderId === currentUserId);
+    const isActive = activeConvIdRef.current === conv?.id;
 
     let unreadCount = 0;
     if (!isActive && !isSentByMe && lastMsgTime > 0) {
@@ -775,21 +776,21 @@ export default function ChatsPage() {
     }
 
     return {
-      id: conv.id,
-      workspaceId: conv.workspaceId,
-      name: conv.name || undefined,
-      type: conv.isChannel ? 'channel' : (conv.isGroup ? 'group' : 'direct'),
-      avatar: conv.avatar || undefined,
-      description: conv.description || undefined,
-      creatorId: conv.creatorId || undefined,
-      members: conv.participants,
+      id: conv?.id || '',
+      workspaceId: conv?.workspaceId || '',
+      name: conv?.name || undefined,
+      type: conv?.isChannel ? 'channel' : (conv?.isGroup ? 'group' : 'direct'),
+      avatar: conv?.avatar || undefined,
+      description: conv?.description || undefined,
+      creatorId: conv?.creatorId || undefined,
+      members: participantsList,
       memberNames,
-      createdAt: conv.createdAt,
-      lastMessage: conv.lastMessage?.content,
-      lastMessageSenderId: conv.lastMessage?.senderId,
-      lastMessageAt: conv.lastMessage?.createdAt || conv.updatedAt,
+      createdAt: conv?.createdAt || new Date().toISOString(),
+      lastMessage: conv?.lastMessage?.content,
+      lastMessageSenderId: conv?.lastMessage?.senderId,
+      lastMessageAt: conv?.lastMessage?.createdAt || conv?.updatedAt || conv?.createdAt,
       unreadCount,
-      clientId: conv.clientId || null,
+      clientId: conv?.clientId || null,
     };
   }, []);
 
@@ -820,7 +821,10 @@ export default function ChatsPage() {
   }, [user]);
 
   const fetchConversations = useCallback(async () => {
-    if (!activeWorkspace) return;
+    if (!activeWorkspace) {
+      setLoadingConvs(false);
+      return;
+    }
     try {
       const now = Date.now();
       const shouldFetchMembers = now - lastMembersFetchRef.current > 120000 || Object.keys(usersByIdRef.current).length === 0;
@@ -1032,16 +1036,20 @@ export default function ChatsPage() {
   };
 
   useEffect(() => {
-    fetchConversations();
-    fetchCRMData();
-    fetchWorkspaceTasks();
+    if (activeWorkspace?.id) {
+      fetchConversations();
+      fetchCRMData();
+      fetchWorkspaceTasks();
+    } else {
+      setLoadingConvs(false);
+    }
     
     // Load local links
     const stored = localStorage.getItem('chat_client_links');
     if (stored) {
       try { setChatClientLinks(JSON.parse(stored)); } catch {}
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace?.id, fetchConversations]);
 
   const chatFiles = useMemo(() => {
     const files: any[] = [];
@@ -2451,21 +2459,25 @@ export default function ChatsPage() {
         }
       }, (error) => {
         // Fallback: If client permissions restrict direct reads, activate fast fallback sync
+        setLoadingMsgs(false);
+        fetchMessages(currentChatId, false, true);
         if (!pollTimer) {
           pollTimer = setInterval(() => {
             if (!document.hidden && activeConvIdRef.current === currentChatId) {
               fetchMessages(currentChatId, false, true);
             }
-          }, 1200);
+          }, 1500);
         }
       });
     } catch {
       // Fallback polling
+      setLoadingMsgs(false);
+      fetchMessages(currentChatId, false, true);
       pollTimer = setInterval(() => {
         if (!document.hidden && activeConvIdRef.current === currentChatId) {
           fetchMessages(currentChatId, false, true);
         }
-      }, 1200);
+      }, 1500);
     }
 
     const handleFocusOrVisible = () => {
@@ -2541,21 +2553,25 @@ export default function ChatsPage() {
           return uniqueNorms.length > 0 ? uniqueNorms[0] : null;
         });
       }, (error) => {
-        // Fallback polling if client read permissions are restricted (relaxed from 2.5s to 45s to protect DB quota)
+        // Fallback: If client read permissions are restricted, immediately fetch via API
+        setLoadingConvs(false);
+        fetchConversations();
         if (!pollTimer) {
           pollTimer = setInterval(() => {
             if (!document.hidden) {
               fetchConversations();
             }
-          }, 45000);
+          }, 6000);
         }
       });
     } catch {
+      setLoadingConvs(false);
+      fetchConversations();
       pollTimer = setInterval(() => {
         if (!document.hidden) {
           fetchConversations();
         }
-      }, 45000);
+      }, 6000);
     }
 
     const handleFocusSync = () => {

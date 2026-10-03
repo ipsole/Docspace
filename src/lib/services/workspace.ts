@@ -115,9 +115,10 @@ export async function listWorkspacesForUser(userId: string): Promise<Workspace[]
       }
     }
 
-    // Ensure workspace owners always have access to their workspaces
+    // Ensure workspace owners and admins always have access to their workspaces
+    const user = await readUser(userId);
     for (const [id, ws] of wsMap) {
-      if (ws.ownerId === userId && !workspaces.some(w => w.id === id)) {
+      if ((ws.ownerId === userId || user?.role === 'admin') && !workspaces.some(w => w.id === id)) {
         workspaces.push(ws);
       }
     }
