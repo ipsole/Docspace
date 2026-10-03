@@ -4,6 +4,50 @@ import { Conversation } from '@/lib/storage/models';
 import { getCurrentUser } from '@/lib/auth';
 import { listWorkspaceMembers } from '@/lib/services/workspace';
 import { chatEmitter } from '@/lib/storage/eventEmitter';
+import { loadMessages } from '@/lib/services/chat';
+import { getGDriveConfig, getGDriveAccessToken, deleteFile as driveDeleteFile } from '@/lib/storage/google-drive';
+import { isFirestoreEnabled, firestoreDelete } from '@/lib/storage/firestoreAdapter';
+import { isR2Enabled, deleteFromR2 } from '@/lib/storage/r2Adapter';
+
+// Helper to delete all attachments in Google Drive and Cloudflare R2 when a chat is cleared or deleted
+async function cleanupChatAttachments(chatId: string) {
+  try {
+    const messages = await loadMessages(chatId, undefined);
+    const gdriveConfig = await getGDriveConfig();
+    let accessToken = '';
+    if (gdriveConfig?.connected) {
+      try { accessToken = await getGDriveAccessToken(); } catch {}
+    }
+
+    for (const msg of messages) {
+      if (msg.attachments && msg.attachments.length > 0) {
+        for (const att of msg.attachments) {
+          // 1. Google Drive cleanup
+          if (accessToken) {
+            let fileId = (att as any).googleDriveFileId;
+            if (!fileId && att.url) {
+              const match = att.url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || att.url.match(/[?&](?:fileId|id|driveFileId)=([a-zA-Z0-9_-]+)/);
+              if (match) fileId = match[1];
+            }
+            if (fileId) {
+              await driveDeleteFile(fileId, accessToken).catch(() => {});
+              if (isFirestoreEnabled() && att.id) {
+                await firestoreDelete('google_drive_files', att.id).catch(() => {});
+              }
+            }
+          }
+          // 2. Cloudflare R2 cleanup
+          const r2Key = (att as any).key || (att.url && att.url.includes('/api/files/raw?key=') ? att.url.split('/api/files/raw?key=')[1]?.split('&')[0] : null);
+          if (r2Key && isR2Enabled()) {
+            await deleteFromR2(decodeURIComponent(r2Key)).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Chat Cleanup] Error deleting attachments:', err.message);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -113,6 +157,7 @@ export async function POST(request: NextRequest) {
         if (!isAuthorizedToDeleteOrClear) {
           return NextResponse.json({ error: 'Forbidden: You are not authorized to clear this conversation' }, { status: 403 });
         }
+        await cleanupChatAttachments(chatId);
         await saveMessages(chatId, []);
         updatedConvo.lastMessage = null;
         chatEmitter.emit('chat_cleared', { chatId });
@@ -121,6 +166,7 @@ export async function POST(request: NextRequest) {
         if (!isAuthorizedToDeleteOrClear) {
           return NextResponse.json({ error: 'Forbidden: You are not authorized to delete this conversation' }, { status: 403 });
         }
+        await cleanupChatAttachments(chatId);
         await deleteConversation(chatId);
         const deleteTargetIds = convo.isChannel ? workspaceMembers.map(m => m.userId) : convo.participants;
         chatEmitter.emit('chat_deleted', { chatId, participants: deleteTargetIds });

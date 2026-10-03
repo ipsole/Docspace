@@ -5,6 +5,7 @@ import { loadMessages, sendMessage, editMessage, renameMessageAttachment, delete
 import { listWorkspaceMembers, getWorkspace, checkWorkspaceAccess } from '@/lib/services/workspace';
 import { getGDriveConfig, getGDriveAccessToken, deleteFile as driveDeleteFile } from '@/lib/storage/google-drive';
 import { firestoreDelete, isFirestoreEnabled } from '@/lib/storage/firestoreAdapter';
+import { isR2Enabled, deleteFromR2 } from '@/lib/storage/r2Adapter';
 
 // Helper to check user access to a conversation
 async function verifyChatAccess(chatId: string, userId: string, role?: string): Promise<{ authorized: boolean; convo?: any; error?: string }> {
@@ -239,6 +240,16 @@ export async function DELETE(request: NextRequest) {
         }
       } catch (gdriveErr: any) {
         console.warn('[GDrive] Attachment cleanup error:', gdriveErr.message);
+      }
+
+      // Delete any Cloudflare R2 files attached to this message
+      if (isR2Enabled()) {
+        for (const att of target.attachments) {
+          const r2Key = (att as any).key || (att.url && att.url.includes('/api/files/raw?key=') ? att.url.split('/api/files/raw?key=')[1]?.split('&')[0] : null);
+          if (r2Key) {
+            await deleteFromR2(decodeURIComponent(r2Key)).catch(() => {});
+          }
+        }
       }
     }
 

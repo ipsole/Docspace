@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { listProjects, createProject, updateProject, deleteProject } from '@/lib/services/project';
 import { listWorkspaceMembers, checkWorkspaceAccess } from '@/lib/services/workspace';
+import { touchWorkspaceSync } from '@/lib/services/syncState';
 
 // Helper to check user membership
 async function isUserMember(workspaceId: string, userId: string, role?: string): Promise<boolean> {
@@ -67,6 +68,8 @@ export async function POST(request: NextRequest) {
       members: members || [user.id]
     });
 
+    await touchWorkspaceSync(workspaceId, 'projects');
+
     return NextResponse.json(project, { status: 201 });
   } catch (error: any) {
     console.error('Projects POST error:', error);
@@ -98,6 +101,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     const project = await updateProject(id, updates);
+    await touchWorkspaceSync(workspaceId, 'projects');
+
     return NextResponse.json(project);
   } catch (error: any) {
     console.error('Projects PATCH error:', error);
@@ -126,6 +131,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     await deleteProject(id);
+    await touchWorkspaceSync(workspaceId, 'projects');
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Projects DELETE error:', error);

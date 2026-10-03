@@ -9,13 +9,14 @@ import {
   Building2, Briefcase, Search, Trash2, Calendar, FileText, CheckCircle2,
   AlertTriangle, ExternalLink, Mail, Phone, MapPin, Globe, Check, Eye, Edit2, Info, ChevronRight, FolderCheck, Download, Settings,
   ReceiptText, FileSpreadsheet, Clock, ArrowUpDown, Camera, Upload, Smile, Sparkles, Archive, UserX, ArrowRight,
-  Tag, Tags, MoreVertical, Bell, ArrowLeft
+  Tag, Tags, MoreVertical, Bell, ArrowLeft, RefreshCw
 } from 'lucide-react';
 import { SheetConfig, FieldDiff } from '@/lib/services/sheetSyncTemplate';
 import { determineGSTTreatment, classifyClientCategory, INDIAN_STATES } from '@/lib/services/gstEngine';
 import InvoicePreviewModal from '@/components/InvoicePreviewModal';
 import { DEFAULT_BUSINESS_PROFILE, BusinessProfile } from '@/lib/invoice-renderer';
 import { emitSyncEvent, subscribeSyncEvent } from '@/lib/sync/crossTabSync';
+import { useWorkspaceCache } from '@/context/WorkspaceCacheContext';
 
 // Color definitions for client collection tags
 const TAG_COLORS: Record<string, string> = {
@@ -272,6 +273,17 @@ export default function ClientsPage() {
   const [activeTab, setActiveTab] = useState<'info' | 'projects' | 'billing' | 'invoices' | 'proforma' | 'files' | 'events'>('info');
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
 
+  // Workspace Shared Cache & Push-to-Invalidate Sync
+  const {
+    clients: cachedClients,
+    projects: cachedProjects,
+    invoices: cachedInvoices,
+    refreshClients,
+    refreshProjects,
+    refreshInvoices,
+    clientsLoading: cacheClientsLoading,
+  } = useWorkspaceCache();
+
   // Data states
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -280,6 +292,33 @@ export default function ClientsPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [previewingInvoice, setPreviewingInvoice] = useState<Invoice | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(DEFAULT_BUSINESS_PROFILE);
+
+  // Sync state from shared workspace cache (0ms instant render)
+  useEffect(() => {
+    if (Array.isArray(cachedClients) && cachedClients.length > 0) {
+      setClients(cachedClients);
+      setSelectedClientId(prev => {
+        if (prev && cachedClients.some((c: any) => c.id === prev)) return prev;
+        const savedClientId = typeof window !== 'undefined' ? sessionStorage.getItem('last_active_client_id') : null;
+        if (savedClientId && cachedClients.some((c: any) => c.id === savedClientId)) return savedClientId;
+        const firstActive = cachedClients.find((c: any) => c.status !== 'inactive');
+        return firstActive ? firstActive.id : cachedClients[0]?.id || '';
+      });
+      setLoading(false);
+    }
+  }, [cachedClients]);
+
+  useEffect(() => {
+    if (Array.isArray(cachedProjects) && cachedProjects.length > 0) {
+      setProjects(cachedProjects);
+    }
+  }, [cachedProjects]);
+
+  useEffect(() => {
+    if (Array.isArray(cachedInvoices) && cachedInvoices.length > 0) {
+      setInvoices(cachedInvoices);
+    }
+  }, [cachedInvoices]);
   
   // Loading & Action states
   const [loading, setLoading] = useState(true);
@@ -1023,21 +1062,42 @@ export default function ClientsPage() {
     }
   };
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (force: boolean = false) => {
     if (!activeWorkspace) return;
-    const hasCache = typeof window !== 'undefined' && !!sessionStorage.getItem('cached_crm_clients');
-    if (!hasCache) setLoading(true);
-    try {
-      const wsId = activeWorkspace.id;
-      const [clientsRes, projectsRes, tasksRes, invoicesRes, eventsRes] = await Promise.all([
-        fetch(`/api/crm/clients?workspaceId=${wsId}`),
-        fetch(`/api/projects?workspaceId=${wsId}`),
-        fetch(`/api/projects/tasks?workspaceId=${wsId}`),
-        fetch(`/api/crm/invoices?workspaceId=${wsId}`),
-        fetch(`/api/calendar?workspaceId=${wsId}`),
-      ]);
+    const wsId = activeWorkspace.id;
 
-      if (clientsRes.ok) {
+    const hasCachedClients = Array.isArray(cachedClients) && cachedClients.length > 0;
+    const hasCachedProjects = Array.isArray(cachedProjects) && cachedProjects.length > 0;
+    const hasCachedInvoices = Array.isArray(cachedInvoices) && cachedInvoices.length > 0;
+
+    if (!hasCachedClients && !force) {
+      setLoading(true);
+    }
+
+    try {
+      if (force) {
+        refreshClients();
+        refreshProjects();
+        refreshInvoices();
+      }
+
+      const promises: [
+        Promise<Response | null>,
+        Promise<Response | null>,
+        Promise<Response | null>,
+        Promise<Response | null>,
+        Promise<Response | null>
+      ] = [
+        (!hasCachedClients || force) ? fetch(`/api/crm/clients?workspaceId=${wsId}`) : Promise.resolve(null),
+        (!hasCachedProjects || force) ? fetch(`/api/projects?workspaceId=${wsId}`) : Promise.resolve(null),
+        fetch(`/api/projects/tasks?workspaceId=${wsId}`),
+        (!hasCachedInvoices || force) ? fetch(`/api/crm/invoices?workspaceId=${wsId}`) : Promise.resolve(null),
+        fetch(`/api/calendar?workspaceId=${wsId}`),
+      ];
+
+      const [clientsRes, projectsRes, tasksRes, invoicesRes, eventsRes] = await Promise.all(promises);
+
+      if (clientsRes && clientsRes.ok) {
         const clientsData = await clientsRes.json();
         setClients(clientsData);
         try {
@@ -1056,22 +1116,22 @@ export default function ClientsPage() {
           return '';
         });
       }
-      if (projectsRes.ok) {
+      if (projectsRes && projectsRes.ok) {
         const d = await projectsRes.json();
         setProjects(d);
         try { sessionStorage.setItem('cached_crm_projects', JSON.stringify(d)); } catch {}
       }
-      if (tasksRes.ok) {
+      if (tasksRes && tasksRes.ok) {
         const d = await tasksRes.json();
         setTasks(d);
         try { sessionStorage.setItem('cached_crm_tasks', JSON.stringify(d)); } catch {}
       }
-      if (invoicesRes.ok) {
+      if (invoicesRes && invoicesRes.ok) {
         const d = await invoicesRes.json();
         setInvoices(d);
         try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(d)); } catch {}
       }
-      if (eventsRes.ok) {
+      if (eventsRes && eventsRes.ok) {
         const d = await eventsRes.json();
         setEvents(d);
         try { sessionStorage.setItem('cached_crm_events', JSON.stringify(d)); } catch {}
@@ -2166,6 +2226,17 @@ export default function ClientsPage() {
               </div>
             )}
           </div>
+
+          {/* Manual Refresh Button */}
+          <button
+            type="button"
+            onClick={() => fetchAllData(true)}
+            disabled={loading || cacheClientsLoading}
+            className="p-1.5 sm:p-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl sm:rounded-2xl transition-all cursor-pointer"
+            title="Refresh clients and linked data"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${loading || cacheClientsLoading ? 'animate-spin' : ''}`} />
+          </button>
 
           {!isReadOnly && (
             <button

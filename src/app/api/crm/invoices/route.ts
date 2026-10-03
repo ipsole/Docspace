@@ -4,7 +4,11 @@ import { listInvoices, createInvoice, updateInvoice, deleteInvoice, getInvoice }
 import { listClients, getClient } from '@/lib/services/crm';
 import { listWorkspaceMembers, checkWorkspaceAccess } from '@/lib/services/workspace';
 import { safeReadFile, safeWriteFile, STORAGE_ROOT } from '@/lib/storage/storage';
+import { touchWorkspaceSync } from '@/lib/services/syncState';
 import path from 'path';
+
+// In-memory 60-second cache for client company names to avoid repeated Firestore queries on invoice lists
+let cachedClientMap: { workspaceId: string; map: Map<string, string>; expiresAt: number } | null = null;
 
 // Helper to check user membership
 async function isUserMember(workspaceId: string, userId: string, role?: string): Promise<boolean> {
@@ -32,10 +36,17 @@ export async function GET(request: NextRequest) {
 
     const invoices = await listInvoices(workspaceId);
     let clientMap = new Map<string, string>();
-    try {
-      const clients = await listClients(workspaceId);
-      clientMap = new Map(clients.map(c => [c.id, c.companyName]));
-    } catch {}
+    const now = Date.now();
+
+    if (cachedClientMap && cachedClientMap.workspaceId === workspaceId && cachedClientMap.expiresAt > now) {
+      clientMap = cachedClientMap.map;
+    } else {
+      try {
+        const clients = await listClients(workspaceId);
+        clientMap = new Map(clients.map(c => [c.id, c.companyName]));
+        cachedClientMap = { workspaceId, map: clientMap, expiresAt: now + 60000 };
+      } catch {}
+    }
 
     const enrichedInvoices = invoices.map(inv => {
       let meta: any = {};
@@ -117,6 +128,8 @@ export async function POST(request: NextRequest) {
       const client = await getClient(clientId);
       if (client?.companyName) clientName = client.companyName;
     } catch {}
+
+    await touchWorkspaceSync(workspaceId, 'invoices');
 
     return NextResponse.json({ ...invoice, clientName }, { status: 201 });
   } catch (error: any) {
@@ -242,6 +255,8 @@ export async function PATCH(request: NextRequest) {
       if (client?.companyName) clientName = client.companyName;
     } catch {}
 
+    await touchWorkspaceSync(workspaceId, 'invoices');
+
     return NextResponse.json({ ...invoice, clientName });
   } catch (error: any) {
     console.error('Invoices PATCH error:', error);
@@ -270,6 +285,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     await deleteInvoice(id);
+    await touchWorkspaceSync(workspaceId, 'invoices');
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Invoices DELETE error:', error);

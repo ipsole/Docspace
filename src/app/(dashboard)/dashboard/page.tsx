@@ -11,6 +11,7 @@ import {
   Sparkles, ReceiptText
 } from 'lucide-react';
 import SkeletonScreen from '@/components/SkeletonScreen';
+import { useWorkspaceCache } from '@/context/WorkspaceCacheContext';
 
 interface Project {
   id: string;
@@ -63,6 +64,33 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clientsCount, setClientsCount] = useState(0);
+
+  // Shared Workspace Cache (push-to-invalidate)
+  const {
+    projects: cachedProjects,
+    invoices: cachedInvoices,
+    clients: cachedClients,
+  } = useWorkspaceCache();
+
+  useEffect(() => {
+    if (Array.isArray(cachedProjects) && cachedProjects.length > 0) {
+      setProjects(cachedProjects);
+      setLoading(false);
+    }
+  }, [cachedProjects]);
+
+  useEffect(() => {
+    if (Array.isArray(cachedInvoices) && cachedInvoices.length > 0) {
+      setInvoices(cachedInvoices);
+      setLoading(false);
+    }
+  }, [cachedInvoices]);
+
+  useEffect(() => {
+    if (Array.isArray(cachedClients) && cachedClients.length > 0) {
+      setClientsCount(cachedClients.length);
+    }
+  }, [cachedClients]);
 
   // Frame-0 cache hydration so dashboard opens instantly without skeleton flash
   useEffect(() => {
@@ -160,49 +188,61 @@ export default function DashboardPage() {
     }
 
     const fetchDashboardData = async () => {
-      const hasCachedData = typeof window !== 'undefined' && (
-        !!sessionStorage.getItem('cached_projects_list') ||
-        !!sessionStorage.getItem('cached_crm_invoices')
-      );
-      if (!hasCachedData) setLoading(true);
+      const hasCachedProj = (Array.isArray(cachedProjects) && cachedProjects.length > 0) || (typeof window !== 'undefined' && !!sessionStorage.getItem('cached_projects_list'));
+      const hasCachedInv = (Array.isArray(cachedInvoices) && cachedInvoices.length > 0) || (typeof window !== 'undefined' && !!sessionStorage.getItem('cached_crm_invoices'));
+      const hasCachedCli = (Array.isArray(cachedClients) && cachedClients.length > 0) || (typeof window !== 'undefined' && !!sessionStorage.getItem('cached_crm_clients'));
+
+      if (!hasCachedProj && !hasCachedInv) setLoading(true);
 
       try {
+        const fetchProjects = (!hasCachedProj) ? fetch(`/api/projects?workspaceId=${activeWorkspace.id}`) : Promise.resolve(null);
+        const fetchChats = fetch(`/api/chat?workspaceId=${activeWorkspace.id}`);
+        const fetchInvoices = (!hasCachedInv) ? fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`) : Promise.resolve(null);
+        const fetchCalendar = fetch(`/api/calendar?workspaceId=${activeWorkspace.id}`);
+        const fetchClients = (!hasCachedCli) ? fetch(`/api/crm/clients?workspaceId=${activeWorkspace.id}`) : Promise.resolve(null);
+
         const [projRes, chatRes, invRes, calRes, clientRes] = await Promise.all([
-          fetch(`/api/projects?workspaceId=${activeWorkspace.id}`),
-          fetch(`/api/chat?workspaceId=${activeWorkspace.id}`),
-          fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`),
-          fetch(`/api/calendar?workspaceId=${activeWorkspace.id}`),
-          fetch(`/api/crm/clients?workspaceId=${activeWorkspace.id}`)
+          fetchProjects,
+          fetchChats,
+          fetchInvoices,
+          fetchCalendar,
+          fetchClients,
         ]);
 
-        const [projData, chatData, invData, calData, clientData] = await Promise.all([
-          projRes.ok ? projRes.json() : [],
-          chatRes.ok ? chatRes.json() : [],
-          invRes.ok ? invRes.json() : [],
-          calRes.ok ? calRes.json() : [],
-          clientRes.ok ? clientRes.json() : []
-        ]);
+        if (projRes && projRes.ok) {
+          const projData = await projRes.json();
+          const projs = Array.isArray(projData) ? projData : [];
+          setProjects(projs);
+          try { sessionStorage.setItem('cached_projects_list', JSON.stringify(projs)); } catch {}
+        }
 
-        const projs = Array.isArray(projData) ? projData : [];
-        const chatsList = Array.isArray(chatData) ? chatData : [];
-        const invs = Array.isArray(invData) ? invData : [];
-        const evts = Array.isArray(calData) ? calData : [];
-        const clCount = Array.isArray(clientData) ? clientData.length : 0;
+        if (chatRes && chatRes.ok) {
+          const chatData = await chatRes.json();
+          const chatsList = Array.isArray(chatData) ? chatData : [];
+          setChats(chatsList);
+          try { localStorage.setItem('cached_conversations', JSON.stringify(chatsList)); } catch {}
+        }
 
-        setProjects(projs);
-        setChats(chatsList);
-        setInvoices(invs);
-        setEvents(evts);
-        setClientsCount(clCount);
+        if (invRes && invRes.ok) {
+          const invData = await invRes.json();
+          const invs = Array.isArray(invData) ? invData : [];
+          setInvoices(invs);
+          try { sessionStorage.setItem('cached_crm_invoices', JSON.stringify(invs)); } catch {}
+        }
 
-        try {
-          sessionStorage.setItem('cached_projects_list', JSON.stringify(projs));
-          sessionStorage.setItem('cached_crm_invoices', JSON.stringify(invs));
-          sessionStorage.setItem('cached_calendar_events', JSON.stringify(evts));
-          if (Array.isArray(clientData)) {
-            sessionStorage.setItem('cached_crm_clients', JSON.stringify(clientData));
-          }
-        } catch {}
+        if (calRes && calRes.ok) {
+          const calData = await calRes.json();
+          const evts = Array.isArray(calData) ? calData : [];
+          setEvents(evts);
+          try { sessionStorage.setItem('cached_calendar_events', JSON.stringify(evts)); } catch {}
+        }
+
+        if (clientRes && clientRes.ok) {
+          const clientData = await clientRes.json();
+          const clCount = Array.isArray(clientData) ? clientData.length : 0;
+          setClientsCount(clCount);
+          try { sessionStorage.setItem('cached_crm_clients', JSON.stringify(clientData)); } catch {}
+        }
       } catch (err) {
         console.error('Failed to load dashboard data:', err);
       } finally {
@@ -213,7 +253,7 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [activeWorkspace]);
 
-  if (loading && projects.length === 0 && invoices.length === 0) {
+  if (loading && projects.length === 0 && invoices.length === 0 && (!cachedProjects || cachedProjects.length === 0) && (!cachedInvoices || cachedInvoices.length === 0)) {
     return <SkeletonScreen />;
   }
 

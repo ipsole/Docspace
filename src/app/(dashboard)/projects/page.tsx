@@ -1068,7 +1068,7 @@ export default function ProjectsPage() {
       const chats = await chatsRes.json();
       const files: any[] = [];
       for (const chat of chats) {
-        const msgRes = await fetch(`/api/chat/message?chatId=${chat.id}`);
+        const msgRes = await fetch(`/api/chat/message?chatId=${chat.id}&limit=all`);
         if (msgRes.ok) {
           const msgs = await msgRes.json();
           for (const msg of msgs) {

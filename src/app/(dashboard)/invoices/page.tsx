@@ -16,6 +16,7 @@ import { determineGSTTreatment, classifyClientCategory, INDIAN_STATES } from '@/
 import { APPS_SCRIPT_TEMPLATE, SheetConfig } from '@/lib/services/sheetSyncTemplate';
 import CustomDropdown from '@/components/CustomDropdown';
 import { emitSyncEvent, subscribeSyncEvent } from '@/lib/sync/crossTabSync';
+import { useWorkspaceCache } from '@/context/WorkspaceCacheContext';
 
 function InvoicesUrlListener({
   onParams
@@ -235,11 +236,60 @@ export default function InvoicesPage() {
     return '₹';
   };
   
+  // Workspace Shared Cache & Push-to-Invalidate Sync
+  const {
+    invoices: cachedInvoices,
+    clients: cachedClients,
+    refreshInvoices,
+    refreshClients,
+    invoicesLoading: cacheInvoicesLoading,
+  } = useWorkspaceCache();
+
   // Data lists
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
+
+  // Sync state from shared workspace cache (0ms instant render)
+  useEffect(() => {
+    if (Array.isArray(cachedClients) && cachedClients.length > 0) {
+      setClients(cachedClients);
+    }
+  }, [cachedClients]);
+
+  useEffect(() => {
+    if (Array.isArray(cachedInvoices) && cachedInvoices.length > 0) {
+      const clientById = new Map((cachedClients || []).map((c: any) => [c.id, c]));
+      const mappedInvoices = cachedInvoices.map((invoice: any) => {
+        const client = clientById.get(invoice.clientId);
+        let meta: any = {};
+        try {
+          if (invoice.notes && invoice.notes.startsWith('{')) meta = JSON.parse(invoice.notes);
+        } catch {}
+        const resolvedName = client ? client.companyName : (invoice.clientName || meta.clientName || 'Unknown Client');
+        return {
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          previousInvoiceNumber: invoice.previousInvoiceNumber || meta.previousInvoiceNumber,
+          previousInvoiceNumbers: invoice.previousInvoiceNumbers || meta.previousInvoiceNumbers,
+          clientId: invoice.clientId,
+          clientName: resolvedName,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          status: invoice.status,
+          total: invoice.total,
+          subtotal: invoice.subtotal || invoice.total,
+          taxTotal: invoice.taxTotal || 0,
+          discount: invoice.discount || 0,
+          notes: invoice.notes || '',
+          items: invoice.items || []
+        };
+      });
+      setInvoices(deduplicateInvoices(mappedInvoices));
+      setLoading(false);
+    }
+  }, [cachedInvoices, cachedClients]);
   
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -1055,52 +1105,15 @@ export default function InvoicesPage() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (force = false) => {
     if (!activeWorkspace) return;
-    const hasCache = typeof window !== 'undefined' && !!sessionStorage.getItem('cached_invoices_list');
-    if (!hasCache) setLoading(true);
+    if (!force && cachedInvoices.length > 0) {
+      setLoading(false);
+      return;
+    }
+    if (invoices.length === 0) setLoading(true);
     try {
-      const [invoicesRes, clientsRes] = await Promise.all([
-        fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`),
-        fetch(`/api/crm/clients?workspaceId=${activeWorkspace.id}`),
-      ]);
-      const clientRows: Client[] = clientsRes.ok ? await clientsRes.json() : [];
-      setClients(clientRows);
-      try { sessionStorage.setItem('cached_invoices_clients', JSON.stringify(clientRows)); } catch {}
-      
-      if (invoicesRes.ok) {
-        const invoiceRows: ApiInvoice[] = await invoicesRes.json();
-        const clientById = new Map(clientRows.map(c => [c.id, c]));
-        
-        const mappedInvoices = invoiceRows.map(invoice => {
-          const client = clientById.get(invoice.clientId);
-          let meta: any = {};
-          try {
-            if (invoice.notes && invoice.notes.startsWith('{')) meta = JSON.parse(invoice.notes);
-          } catch {}
-          const resolvedName = client ? client.companyName : (invoice.clientName || meta.clientName || 'Unknown Client');
-          return {
-            id: invoice.id,
-            invoiceNumber: invoice.invoiceNumber,
-            previousInvoiceNumber: (invoice as any).previousInvoiceNumber || meta.previousInvoiceNumber,
-            previousInvoiceNumbers: (invoice as any).previousInvoiceNumbers || meta.previousInvoiceNumbers,
-            clientId: invoice.clientId,
-            clientName: resolvedName,
-            issueDate: invoice.issueDate,
-            dueDate: invoice.dueDate,
-            status: invoice.status,
-            total: invoice.total,
-            subtotal: invoice.subtotal || invoice.total,
-            taxTotal: invoice.taxTotal || 0,
-            discount: invoice.discount || 0,
-            notes: invoice.notes || '',
-            items: invoice.items || []
-          };
-        });
-        const uniqueList = deduplicateInvoices(mappedInvoices);
-        setInvoices(uniqueList);
-        try { sessionStorage.setItem('cached_invoices_list', JSON.stringify(uniqueList)); } catch {}
-      }
+      await Promise.all([refreshInvoices(), refreshClients()]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -3332,6 +3345,17 @@ GSTR-1 Segregation:
               </div>
 
               <button
+                type="button"
+                onClick={() => fetchInvoices(true)}
+                disabled={loading || cacheInvoicesLoading}
+                className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-205 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 rounded-2xl text-[10px] font-semibold uppercase tracking-wider transition-all shadow-sm shrink-0 cursor-pointer"
+                title="Refresh invoices and clients from database"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${loading || cacheInvoicesLoading ? 'animate-spin text-indigo-600' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+
+              <button
                 onClick={openSettings}
                 className="flex items-center gap-1.5 px-4.5 py-2.5 border border-slate-205 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 rounded-2xl text-[10px] font-semibold uppercase tracking-wider transition-all shadow-sm shrink-0"
               >
@@ -3702,7 +3726,7 @@ GSTR-1 Segregation:
           </div>
         </div>
 
-        {loading ? (
+        {loading && invoices.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
           </div>

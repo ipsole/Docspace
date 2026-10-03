@@ -4,6 +4,7 @@ import { listWorkspaceMembers, getWorkspace } from '@/lib/services/workspace';
 import { getInvoice, listInvoices } from '@/lib/services/billing';
 import { getClient, listClients } from '@/lib/services/crm';
 import { safeReadFile, safeWriteFile, STORAGE_ROOT } from '@/lib/storage/storage';
+import { touchWorkspaceSync } from '@/lib/services/syncState';
 import path from 'path';
 
 import { APPS_SCRIPT_TEMPLATE, SheetConfig } from '@/lib/services/sheetSyncTemplate';
@@ -300,6 +301,7 @@ export async function POST(request: NextRequest) {
           }
         }
         await safeWriteFile(filePath, JSON.stringify(config, null, 2));
+        await touchWorkspaceSync(workspaceId, 'invoices');
 
         return NextResponse.json({ success: true, result });
       } catch (err: any) {
@@ -351,6 +353,7 @@ export async function POST(request: NextRequest) {
           }
         }
         await safeWriteFile(filePath, JSON.stringify(config, null, 2));
+        await touchWorkspaceSync(workspaceId, 'clients');
 
         return NextResponse.json({ 
           success: true, 

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import CommandPalette from '@/components/CommandPalette';
 import { ConfirmProvider, useConfirm } from '@/context/ConfirmContext';
+import { WorkspaceCacheProvider } from '@/context/WorkspaceCacheContext';
 
 interface NavGroup {
   title: string;
@@ -145,8 +146,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       }
     } catch {}
 
-    // One-shot check on mount (covers case where user lands here without ever opening chats)
+    // One-shot check on mount (only if no cached unread count exists)
     const checkUnread = async () => {
+      const cached = localStorage.getItem(`docspace_unread_chat_count_${wsId}`);
+      if (cached !== null) return; // Use cached unread, no need to query Firestore
       try {
         const res = await fetch(`/api/chat?workspaceId=${wsId}`);
         if (!res.ok) return;
@@ -167,11 +170,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     };
 
     checkUnread();
-    // Fallback poll every 3 minutes (safety net only — BroadcastChannel handles real-time)
-    const interval = setInterval(checkUnread, 180000);
     return () => {
       window.removeEventListener('docspace_unread_chat_count', handleUnreadEvent);
-      clearInterval(interval);
       try { bcUnread?.close(); } catch {}
     };
   }, [activeWorkspace?.id, user?.id]);
@@ -731,7 +731,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmProvider>
-      <DashboardLayoutContent>{children}</DashboardLayoutContent>
+      <WorkspaceCacheProvider>
+        <DashboardLayoutContent>{children}</DashboardLayoutContent>
+      </WorkspaceCacheProvider>
     </ConfirmProvider>
   );
 }

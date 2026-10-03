@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { listClients, getClient, createClient, updateClient, deleteClient } from '@/lib/services/crm';
 import { listWorkspaceMembers, checkWorkspaceAccess } from '@/lib/services/workspace';
 import { safeReadFile, safeWriteFile, STORAGE_ROOT } from '@/lib/storage/storage';
+import { touchWorkspaceSync } from '@/lib/services/syncState';
 import path from 'path';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -199,6 +200,7 @@ export async function POST(request: NextRequest) {
     if (client.gstNumber) initialDiffs.push({ field: 'gstNumber', label: 'GSTIN', oldValue: '', newValue: client.gstNumber });
 
     await trackClientChange(workspaceId, client.id, client.companyName, 'created', 'New client registered', initialDiffs);
+    await touchWorkspaceSync(workspaceId, 'clients');
 
     return NextResponse.json(client, { status: 201 });
   } catch (error: any) {
@@ -265,6 +267,7 @@ export async function PATCH(request: NextRequest) {
       details,
       fieldDiffs
     );
+    await touchWorkspaceSync(workspaceId, 'clients');
 
     return NextResponse.json(client);
   } catch (error: any) {
@@ -295,6 +298,8 @@ export async function DELETE(request: NextRequest) {
 
     await deleteClient(id);
     await removeClientChange(workspaceId, id);
+    await touchWorkspaceSync(workspaceId, 'clients');
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Clients DELETE error:', error);
