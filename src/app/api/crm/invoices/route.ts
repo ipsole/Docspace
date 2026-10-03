@@ -88,9 +88,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'A valid invoice total is required' }, { status: 400 });
     }
 
+    const normInvoiceNum = invoiceNumber.trim().toUpperCase();
+    const existingInvoices = await listInvoices(workspaceId);
+    const duplicate = existingInvoices.find(
+      inv => (inv.invoiceNumber || '').trim().toUpperCase() === normInvoiceNum
+    );
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `An invoice with number "${invoiceNumber.trim()}" already exists. Each invoice must have a unique identification.` },
+        { status: 409 }
+      );
+    }
+
     const invoice = await createInvoice(workspaceId, {
       clientId,
-      invoiceNumber,
+      invoiceNumber: invoiceNumber.trim(),
       status: status || 'draft',
       issueDate,
       dueDate,
@@ -109,7 +121,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ...invoice, clientName }, { status: 201 });
   } catch (error: any) {
     console.error('Invoices POST error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    const message = error?.message || 'Internal Server Error';
+    const status = message.includes('already exists') ? 409 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -129,6 +143,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     const existingInvoice = await getInvoice(id);
+    if (updates.invoiceNumber && existingInvoice && updates.invoiceNumber.trim().toUpperCase() !== (existingInvoice.invoiceNumber || '').trim().toUpperCase()) {
+      const normNew = updates.invoiceNumber.trim().toUpperCase();
+      const allInvoices = await listInvoices(workspaceId);
+      const duplicate = allInvoices.find(
+        inv => inv.id !== id && (inv.invoiceNumber || '').trim().toUpperCase() === normNew
+      );
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Another invoice with number "${updates.invoiceNumber.trim()}" already exists. Each invoice must have a unique identification.` },
+          { status: 409 }
+        );
+      }
+    }
     let prevNums: string[] = [];
     if (existingInvoice) {
       if (existingInvoice.previousInvoiceNumber) prevNums.push(existingInvoice.previousInvoiceNumber);

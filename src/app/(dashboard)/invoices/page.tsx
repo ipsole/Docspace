@@ -200,6 +200,26 @@ const compareInvoices = (a: Invoice, b: Invoice, sortBy: InvoiceSortOption): num
   }
 };
 
+const deduplicateInvoices = (list: Invoice[]): Invoice[] => {
+  const seenNumbers = new Set<string>();
+  const seenIds = new Set<string>();
+  const result: Invoice[] = [];
+
+  for (const inv of list) {
+    if (!inv || !inv.id) continue;
+    if (seenIds.has(inv.id)) continue;
+    seenIds.add(inv.id);
+
+    const norm = (inv.invoiceNumber || '').trim().toUpperCase();
+    if (norm) {
+      if (seenNumbers.has(norm)) continue;
+      seenNumbers.add(norm);
+    }
+    result.push(inv);
+  }
+  return result;
+};
+
 export default function InvoicesPage() {
   const { user } = useAuth();
   const { activeWorkspace, currentMember, getTabAccess } = useWorkspace();
@@ -423,7 +443,7 @@ export default function InvoicesPage() {
       try {
         const cInvoices = sessionStorage.getItem('cached_invoices_list');
         if (cInvoices) {
-          setInvoices(JSON.parse(cInvoices));
+          setInvoices(deduplicateInvoices(JSON.parse(cInvoices)));
           setLoading(false);
         }
         const cClients = sessionStorage.getItem('cached_invoices_clients');
@@ -1042,8 +1062,9 @@ export default function InvoicesPage() {
             items: invoice.items || []
           };
         });
-        setInvoices(mappedInvoices);
-        try { sessionStorage.setItem('cached_invoices_list', JSON.stringify(mappedInvoices)); } catch {}
+        const uniqueList = deduplicateInvoices(mappedInvoices);
+        setInvoices(uniqueList);
+        try { sessionStorage.setItem('cached_invoices_list', JSON.stringify(uniqueList)); } catch {}
       }
     } catch (err) {
       console.error(err);
@@ -1663,10 +1684,27 @@ export default function InvoicesPage() {
   // Submit invoice (create or update)
   const handleSubmitInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creating) return; // Prevent double-clicks and re-entry
+
     if (!activeWorkspace || !clientId || !invoiceNumber || !issueDate || !dueDate) {
       alert('Please fill out all required fields');
       return;
     }
+
+    const currentNumUpper = (invoiceNumber || '').trim().toUpperCase();
+
+    // System rule: Check if an invoice with this number already exists
+    const duplicateExists = invoices.some(
+      inv => inv.id !== editingInvoice?.id && (inv.invoiceNumber || '').trim().toUpperCase() === currentNumUpper
+    );
+    if (duplicateExists) {
+      alert(`An invoice with number "${invoiceNumber.trim()}" already exists. Each invoice must have a unique identification.`);
+      return;
+    }
+
+    // Immediately lock button and display feedback to user
+    setCreating(true);
+
     let previousInvoiceNumber = '';
     let previousInvoiceNumbers: string[] = [];
 
@@ -1702,7 +1740,6 @@ export default function InvoicesPage() {
       }
 
       // Filter out current invoice number and any other active invoice numbers from previousInvoiceNumbers
-      const currentNumUpper = (invoiceNumber || '').trim().toUpperCase();
       const otherActiveNumbers = new Set(
         invoices
           .filter(inv => inv.id !== editingInvoice.id)
@@ -1759,7 +1796,7 @@ export default function InvoicesPage() {
             id: editingInvoice.id,
             workspaceId: activeWorkspace.id,
             clientId,
-            invoiceNumber,
+            invoiceNumber: invoiceNumber.trim(),
             previousInvoiceNumber,
             previousInvoiceNumbers,
             issueDate,
@@ -1772,6 +1809,7 @@ export default function InvoicesPage() {
           })
         });
         if (res.ok) {
+          const updatedInvData: Invoice = await res.json();
           const editedId = editingInvoice.id;
           setShowAddModal(false);
           setEditingInvoice(null);
@@ -1782,23 +1820,12 @@ export default function InvoicesPage() {
           }));
           const activeTabForDoc = docType === 'proforma' ? 'proforma' : docType === 'receipt' ? 'receipt' : 'invoice';
           setActiveDocTypeTab(activeTabForDoc);
-          // Instantly update invoices list and preview modal
-          const freshRes = await fetch(`/api/crm/invoices?workspaceId=${activeWorkspace.id}`);
-          if (freshRes.ok) {
-            const freshInvoices: Invoice[] = await freshRes.json();
-            setInvoices(freshInvoices);
-            const updatedInv = freshInvoices.find(i => i.id === editedId);
-            if (updatedInv) {
-              const targetClient = clients.find(c => c.id === updatedInv.clientId);
-              setSelectedInvoice({
-                ...updatedInv,
-                clientName: updatedInv.clientName || targetClient?.companyName || clientName || 'Selected Client'
-              });
-            }
-          }
+          // Instantly update invoices list in-place with deduplication
+          setInvoices(prev => deduplicateInvoices(prev.map(i => i.id === editedId ? { ...i, ...updatedInvData } : i)));
+          fetchInvoices();
           emitSyncEvent('docspace_invoice_status', { type: 'invoice_updated', invoiceId: editedId, workspaceId: activeWorkspace.id });
         } else {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           alert(data.error || 'Failed to update invoice');
         }
       } else {
@@ -1809,7 +1836,7 @@ export default function InvoicesPage() {
           body: JSON.stringify({
             workspaceId: activeWorkspace.id,
             clientId,
-            invoiceNumber,
+            invoiceNumber: invoiceNumber.trim(),
             issueDate,
             dueDate,
             status: 'sent',
@@ -1821,19 +1848,22 @@ export default function InvoicesPage() {
           })
         });
         if (res.ok) {
+          const createdInvData: Invoice = await res.json();
           setShowAddModal(false);
           const activeTabForDoc = docType === 'proforma' ? 'proforma' : docType === 'receipt' ? 'receipt' : 'invoice';
           setActiveDocTypeTab(activeTabForDoc);
+          // Instantly prepend into state with deduplication
+          setInvoices(prev => deduplicateInvoices([createdInvData, ...prev]));
           fetchInvoices();
           emitSyncEvent('docspace_invoice_status', { type: 'invoice_created', workspaceId: activeWorkspace.id });
         } else {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           alert(data.error || 'Failed to create invoice');
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Network error');
+      alert(err?.message || 'Network error occurred while saving invoice');
     } finally {
       setCreating(false);
     }
@@ -4256,9 +4286,26 @@ GSTR-1 Segregation:
                 {/* Footer buttons */}
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 bg-transparent shrink-0">
                   <button type="button" onClick={() => { setShowAddModal(false); setEditingInvoice(null); }} className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all">Cancel</button>
-                  <button type="submit" disabled={creating || clients.length === 0} className="px-5 py-2 bg-slate-900 hover:opacity-90 dark:bg-slate-100 dark:text-slate-900 text-white rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center gap-1.5">
-                    {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                    {editingInvoice ? 'Save Changes' : 'Save Invoice'}
+                  <button
+                    type="submit"
+                    disabled={creating || clients.length === 0}
+                    className={`px-5 py-2 rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center gap-1.5 ${
+                      creating || clients.length === 0
+                        ? 'bg-slate-400 dark:bg-slate-700 text-white cursor-not-allowed opacity-75 pointer-events-none'
+                        : 'bg-slate-900 hover:opacity-90 dark:bg-slate-100 dark:text-slate-900 text-white cursor-pointer active:scale-95'
+                    }`}
+                  >
+                    {creating ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>{editingInvoice ? 'Saving Changes...' : 'Saving Invoice...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        <span>{editingInvoice ? 'Save Changes' : 'Save Invoice'}</span>
+                      </>
+                    )}
                   </button>
                 </div>
 

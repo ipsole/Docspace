@@ -45,32 +45,71 @@ export function calculateInvoiceTotals(
 // --- INVOICE OPERATIONS ---
 
 export async function listInvoices(workspaceId: string): Promise<Invoice[]> {
+  let invoices: Invoice[] = [];
+
   if (isFirestoreEnabled()) {
-    const invoices = await firestoreQuery<Invoice>('invoices', 'workspaceId', workspaceId);
-    return invoices
-      .filter(Boolean)
-      .sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
-  }
+    const raw = await firestoreQuery<Invoice>('invoices', 'workspaceId', workspaceId);
+    invoices = raw.filter(Boolean);
+  } else {
+    await ensureDirs();
+    const files = await fs.readdir(INVOICES_DIR).catch(() => []);
 
-  await ensureDirs();
-  const files = await fs.readdir(INVOICES_DIR).catch(() => []);
-  const invoices: Invoice[] = [];
-
-  for (const file of files) {
-    if (file.endsWith('.json')) {
-      const content = await safeReadFile(path.join(INVOICES_DIR, file));
-      if (content) {
-        try {
-          const inv = JSON.parse(content) as Invoice;
-          if (inv.workspaceId === workspaceId) {
-            invoices.push(inv);
-          }
-        } catch {}
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const content = await safeReadFile(path.join(INVOICES_DIR, file));
+        if (content) {
+          try {
+            const inv = JSON.parse(content) as Invoice;
+            if (inv.workspaceId === workspaceId) {
+              invoices.push(inv);
+            }
+          } catch {}
+        }
       }
     }
   }
 
-  return invoices.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+  // Sort newest first
+  invoices.sort((a, b) => {
+    const timeA = new Date(a.issueDate || a.createdAt || 0).getTime();
+    const timeB = new Date(b.issueDate || b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+
+  // Strict system rule: An invoice number can NEVER be duplicated in the same workspace.
+  // Deduplicate records and automatically clean up duplicate copies if any exist.
+  const seenNumbers = new Map<string, Invoice>();
+  const seenIds = new Set<string>();
+  const duplicatesToDelete: Invoice[] = [];
+  const uniqueInvoices: Invoice[] = [];
+
+  for (const inv of invoices) {
+    if (!inv || !inv.id) continue;
+    if (seenIds.has(inv.id)) continue;
+    seenIds.add(inv.id);
+
+    const norm = (inv.invoiceNumber || '').trim().toUpperCase();
+    if (!norm) {
+      uniqueInvoices.push(inv);
+      continue;
+    }
+
+    if (!seenNumbers.has(norm)) {
+      seenNumbers.set(norm, inv);
+      uniqueInvoices.push(inv);
+    } else {
+      // Duplicate invoice found! Add to purge list so database stays clean
+      duplicatesToDelete.push(inv);
+    }
+  }
+
+  if (duplicatesToDelete.length > 0) {
+    Promise.allSettled(
+      duplicatesToDelete.map(dup => deleteInvoice(dup.id))
+    ).catch(err => console.error('Failed to cleanup duplicate invoices:', err));
+  }
+
+  return uniqueInvoices;
 }
 
 export async function getInvoice(id: string): Promise<Invoice | null> {
@@ -88,6 +127,17 @@ export async function createInvoice(
   workspaceId: string,
   data: Omit<Invoice, 'id' | 'workspaceId' | 'createdAt' | 'subtotal' | 'taxTotal' | 'total'>
 ): Promise<Invoice> {
+  const normNum = (data.invoiceNumber || '').trim().toUpperCase();
+  if (normNum) {
+    const existing = await listInvoices(workspaceId);
+    const isDuplicate = existing.some(
+      inv => (inv.invoiceNumber || '').trim().toUpperCase() === normNum
+    );
+    if (isDuplicate) {
+      throw new Error(`An invoice with number "${data.invoiceNumber.trim()}" already exists in this workspace.`);
+    }
+  }
+
   await ensureDirs();
   const id = uuidv4();
   
