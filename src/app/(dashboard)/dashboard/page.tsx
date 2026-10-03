@@ -120,7 +120,7 @@ export default function DashboardPage() {
           setEvents(JSON.parse(cachedCal));
         }
 
-        const cachedChats = localStorage.getItem('cached_conversations');
+        const cachedChats = sessionStorage.getItem('cached_dashboard_chats');
         if (cachedChats) {
           setChats(JSON.parse(cachedChats));
         }
@@ -220,7 +220,7 @@ export default function DashboardPage() {
           const chatData = await chatRes.json();
           const chatsList = Array.isArray(chatData) ? chatData : [];
           setChats(chatsList);
-          try { localStorage.setItem('cached_conversations', JSON.stringify(chatsList)); } catch {}
+          try { sessionStorage.setItem('cached_dashboard_chats', JSON.stringify(chatsList)); } catch {}
         }
 
         if (invRes && invRes.ok) {

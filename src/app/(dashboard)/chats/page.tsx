@@ -195,6 +195,32 @@ const sortConversationsDeterministically = (list: Conversation[]): Conversation[
   });
 };
 
+function getLastMessageText(lastMessage: any): string {
+  if (!lastMessage) return '';
+  if (typeof lastMessage === 'string') return lastMessage;
+  if (typeof lastMessage === 'object' && lastMessage !== null) {
+    if (typeof lastMessage.content === 'string') return lastMessage.content;
+    if (typeof (lastMessage as any).text === 'string') return (lastMessage as any).text;
+  }
+  return '';
+}
+
+function normalizeCachedConv(c: any): Conversation {
+  if (!c || typeof c !== 'object') {
+    return {
+      id: '',
+      workspaceId: '',
+      type: 'direct',
+      members: [],
+      createdAt: '',
+    };
+  }
+  return {
+    ...c,
+    lastMessage: getLastMessageText(c.lastMessage),
+  };
+}
+
 export default function ChatsPage() {
   const { user } = useAuth();
   const { activeWorkspace, getTabAccess, currentMember } = useWorkspace();
@@ -213,7 +239,11 @@ export default function ChatsPage() {
     try {
       const cached = getStoredItem('cached_conversations');
       if (!cached) return [];
-      const list: Conversation[] = JSON.parse(cached);
+      const rawList = JSON.parse(cached);
+      if (!Array.isArray(rawList)) return [];
+      const list: Conversation[] = rawList
+        .filter((c: any) => c && typeof c === 'object' && c.id)
+        .map(normalizeCachedConv);
       return sortConversationsDeterministically(Array.from(new Map(list.map(c => [c.id, c])).values()));
     } catch { return []; }
   });
@@ -223,8 +253,11 @@ export default function ChatsPage() {
       const savedId = getStoredItem('last_active_chat_id');
       const cached = getStoredItem('cached_conversations');
       if (savedId && cached) {
-        const list: Conversation[] = JSON.parse(cached);
-        return list.find(c => c.id === savedId) || null;
+        const rawList = JSON.parse(cached);
+        if (Array.isArray(rawList)) {
+          const found = rawList.find((c: any) => c && c.id === savedId);
+          return found ? normalizeCachedConv(found) : null;
+        }
       }
       return null;
     } catch { return null; }
@@ -937,21 +970,26 @@ export default function ChatsPage() {
     try {
       const cached = getStoredItem('cached_conversations');
       if (cached) {
-        const list: Conversation[] = JSON.parse(cached);
-        const unique = Array.from(new Map(list.map(c => [c.id, c])).values());
-        if (unique.length > 0) {
-          setConversations(unique);
-          setLoadingConvs(false);
-          const savedId = getStoredItem('last_active_chat_id');
-          const target = savedId ? unique.find(c => c.id === savedId) || unique[0] : unique[0];
-          if (target) {
-            setActiveConv(prev => prev || target);
-            const cachedMsgs = getStoredItem(`cached_msgs_${target.id}`);
-            if (cachedMsgs) {
-              const msgs = JSON.parse(cachedMsgs);
-              if (Array.isArray(msgs) && msgs.length > 0) {
-                setMessages(msgs);
-                messagesRef.current = msgs;
+        const rawList = JSON.parse(cached);
+        if (Array.isArray(rawList)) {
+          const list: Conversation[] = rawList
+            .filter((c: any) => c && typeof c === 'object' && c.id)
+            .map(normalizeCachedConv);
+          const unique = Array.from(new Map(list.map(c => [c.id, c])).values());
+          if (unique.length > 0) {
+            setConversations(unique);
+            setLoadingConvs(false);
+            const savedId = getStoredItem('last_active_chat_id');
+            const target = savedId ? unique.find(c => c.id === savedId) || unique[0] : unique[0];
+            if (target) {
+              setActiveConv(prev => prev || target);
+              const cachedMsgs = getStoredItem(`cached_msgs_${target.id}`);
+              if (cachedMsgs) {
+                const msgs = JSON.parse(cachedMsgs);
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                  setMessages(msgs);
+                  messagesRef.current = msgs;
+                }
               }
             }
           }
@@ -3491,7 +3529,7 @@ export default function ChatsPage() {
       if (query) {
         const nameMatch = getConvDisplayName(c).toLowerCase().includes(query);
         const clientMatch = Boolean(getLinkedClientForConv(c)?.companyName.toLowerCase().includes(query));
-        const lastMsgMatch = Boolean(c.lastMessage?.toLowerCase().includes(query));
+        const lastMsgMatch = Boolean(getLastMessageText(c.lastMessage).toLowerCase().includes(query));
         if (!nameMatch && !clientMatch && !lastMsgMatch) return false;
       }
 
@@ -3545,7 +3583,7 @@ export default function ChatsPage() {
           const clientMatches = client.companyName.toLowerCase().includes(query);
           const matchingConvs = clientConvs.filter(c =>
             getConvDisplayName(c).toLowerCase().includes(query) ||
-            Boolean(c.lastMessage?.toLowerCase().includes(query))
+            Boolean(getLastMessageText(c.lastMessage).toLowerCase().includes(query))
           );
           if (clientMatches || matchingConvs.length > 0) {
             const group = {
@@ -4078,7 +4116,7 @@ export default function ChatsPage() {
                               <p className={`text-[10px] truncate mt-0.5 ${
                                 isSelected ? 'text-indigo-900/70 dark:text-indigo-300/70 font-medium' : 'text-slate-400'
                               }`}>
-                                {conv.lastMessage ?? 'No messages yet'}
+                                {getLastMessageText(conv.lastMessage) || 'No messages yet'}
                               </p>
                             </div>
 
@@ -4377,7 +4415,7 @@ export default function ChatsPage() {
                                 <p className={`text-[10px] truncate mt-0.5 ${
                                   isSelected ? 'text-indigo-900/70 dark:text-indigo-300/70 font-medium' : 'text-slate-400'
                                 }`}>
-                                  {conv.lastMessage ?? 'No messages yet'}
+                                  {getLastMessageText(conv.lastMessage) || 'No messages yet'}
                                 </p>
                               </div>
 
@@ -4589,7 +4627,7 @@ export default function ChatsPage() {
                       <p className={`text-[10px] truncate mt-0.5 ${
                         isSelected ? 'text-indigo-900/70 dark:text-indigo-300/70 font-medium' : 'text-slate-400'
                       }`}>
-                        {conv.lastMessage ?? 'No messages yet'}
+                        {getLastMessageText(conv.lastMessage) || 'No messages yet'}
                       </p>
                     </div>
 
