@@ -25,8 +25,21 @@ export default function DashboardErrorBoundary({
       <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-5">
         A temporary error occurred while displaying this page. You can try refreshing the tab or navigating to another workspace section.
       </p>
+      {error?.message && (
+        <p className="text-[11px] font-mono text-red-500 bg-red-50 dark:bg-red-950/20 px-3 py-1.5 rounded-lg mb-4 max-w-md break-all">
+          {error.message}
+        </p>
+      )}
       <button
-        onClick={() => reset()}
+        onClick={() => {
+          try {
+            sessionStorage.removeItem('cached_conversations');
+            sessionStorage.removeItem('last_active_chat_id');
+            localStorage.removeItem('cached_conversations');
+            localStorage.removeItem('last_active_chat_id');
+          } catch {}
+          reset();
+        }}
         className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-black dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-semibold shadow-xs transition-all cursor-pointer"
       >
         <RefreshCw className="h-3.5 w-3.5" />

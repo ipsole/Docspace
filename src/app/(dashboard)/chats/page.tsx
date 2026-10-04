@@ -191,7 +191,7 @@ const sortConversationsDeterministically = (list: Conversation[]): Conversation[
     const timeA = new Date(a.lastMessageAt || a.createdAt || 0).getTime() || 0;
     const timeB = new Date(b.lastMessageAt || b.createdAt || 0).getTime() || 0;
     if (timeB !== timeA) return timeB - timeA;
-    return a.id.localeCompare(b.id);
+    return String(a.id || '').localeCompare(String(b.id || ''));
   });
 };
 
@@ -215,8 +215,15 @@ function normalizeCachedConv(c: any): Conversation {
       createdAt: '',
     };
   }
+  const members = Array.isArray(c.members)
+    ? c.members
+    : (Array.isArray(c.participants) ? c.participants : []);
   return {
     ...c,
+    id: c.id ? String(c.id) : '',
+    workspaceId: c.workspaceId ? String(c.workspaceId) : '',
+    type: c.type || (c.isChannel ? 'channel' : (c.isGroup ? 'group' : 'direct')),
+    members,
     lastMessage: getLastMessageText(c.lastMessage),
   };
 }
@@ -513,7 +520,7 @@ export default function ChatsPage() {
   const [clientTagFilter, setClientTagFilter] = useState<string>('all');
 
   const getTagIcon = (tag: string) => {
-    const lower = tag.toLowerCase();
+    const lower = (tag || '').toLowerCase();
     if (lower.includes('important') || lower.includes('vip') || lower.includes('star')) return '⭐';
     if (lower.includes('high') || lower.includes('premium') || lower.includes('diamond')) return '💎';
     if (lower.includes('low') || lower.includes('basic')) return '🏷️';
@@ -850,7 +857,7 @@ export default function ChatsPage() {
           const u = item.user;
           if (u) {
             mapping[u.id] = u;
-            userMapping[u.username.toLowerCase()] = u.id;
+            if (u.username) userMapping[u.username.toLowerCase()] = u.id;
           }
         });
         usersByIdRef.current = mapping;
@@ -1086,18 +1093,19 @@ export default function ChatsPage() {
   const filteredChatFiles = useMemo(() => {
     return chatFiles.filter(file => {
       if (storageCategoryTab === 'all') return true;
-      const mime = file.mimeType.toLowerCase();
+      const mime = (file.mimeType || '').toLowerCase();
+      const fileName = (file.name || '').toLowerCase();
       if (storageCategoryTab === 'images') return mime.startsWith('image/');
       if (storageCategoryTab === 'docs') {
         return mime.startsWith('text/') || mime === 'application/pdf' || 
-               file.name.endsWith('.doc') || file.name.endsWith('.docx') || 
-               file.name.endsWith('.xls') || file.name.endsWith('.xlsx');
+               fileName.endsWith('.doc') || fileName.endsWith('.docx') || 
+               fileName.endsWith('.xls') || fileName.endsWith('.xlsx');
       }
       if (storageCategoryTab === 'media') return mime.startsWith('audio/') || mime.startsWith('video/');
       // 'others'
       return !mime.startsWith('image/') && !mime.startsWith('audio/') && !mime.startsWith('video/') && 
              !mime.startsWith('text/') && mime !== 'application/pdf' && 
-             !file.name.endsWith('.doc') && !file.name.endsWith('.docx') && 
+             !fileName.endsWith('.doc') && !fileName.endsWith('.docx') && 
              !file.name.endsWith('.xls') && !file.name.endsWith('.xlsx');
     });
   }, [chatFiles, storageCategoryTab]);
@@ -1702,8 +1710,9 @@ export default function ChatsPage() {
 
   const getConvDisplayName = useCallback((conv?: Conversation | null | undefined) => {
     if (!conv) return 'Conversation';
+    const members: string[] = Array.isArray(conv.members) ? conv.members : (Array.isArray((conv as any)?.participants) ? (conv as any).participants : []);
     if (conv.type === 'direct') {
-      const otherId = conv.members.find(id => id !== user?.id) || (conv.members.length > 0 ? conv.members[0] : null);
+      const otherId = members.find((id: string) => id !== user?.id) || (members.length > 0 ? members[0] : null);
       if (otherId) {
         const u = usersById[otherId] || usersByIdRef.current[otherId];
         if (u?.displayName) return u.displayName;
@@ -1724,7 +1733,8 @@ export default function ChatsPage() {
         let changed = false;
         const next = prev.map(c => {
           if (c.type === 'direct') {
-            const otherId = c.members.find(id => id !== user?.id) || c.members[0];
+            const members: string[] = Array.isArray(c.members) ? c.members : (Array.isArray((c as any)?.participants) ? (c as any).participants : []);
+            const otherId = members.find((id: string) => id !== user?.id) || members[0];
             const u = otherId ? usersById[otherId] : null;
             if (u && (!c.memberNames?.[otherId] || c.memberNames[otherId] === 'Unknown')) {
               changed = true;
@@ -1847,14 +1857,16 @@ export default function ChatsPage() {
 
   const linkedEvents = useMemo(() => {
     if (!activeLinkedClient) return [];
-    const clientName = activeLinkedClient.companyName.toLowerCase();
-    const contact = activeLinkedClient.contactPerson.toLowerCase();
-    return crmEvents.filter(e => 
-      e.title?.toLowerCase().includes(clientName) ||
-      e.description?.toLowerCase().includes(clientName) ||
-      e.title?.toLowerCase().includes(contact) ||
-      e.description?.toLowerCase().includes(contact)
-    );
+    const clientName = (activeLinkedClient.companyName || '').trim().toLowerCase();
+    const contact = (activeLinkedClient.contactPerson || '').trim().toLowerCase();
+    return crmEvents.filter(e => {
+      const title = (e.title || '').toLowerCase();
+      const desc = (e.description || '').toLowerCase();
+      return (
+        (clientName && (title.includes(clientName) || desc.includes(clientName))) ||
+        (contact && (title.includes(contact) || desc.includes(contact)))
+      );
+    });
   }, [crmEvents, activeLinkedClient]);
 
   const fetchMessages = useCallback(async (chatId: string, showLoader = false, isSilentPoll = false) => {
@@ -3543,8 +3555,9 @@ export default function ChatsPage() {
 
     const filtered = uniqueConvs.filter(c => {
       if (query) {
-        const nameMatch = getConvDisplayName(c).toLowerCase().includes(query);
-        const clientMatch = Boolean(getLinkedClientForConv(c)?.companyName.toLowerCase().includes(query));
+        const nameMatch = (getConvDisplayName(c) || '').toLowerCase().includes(query);
+        const linked = getLinkedClientForConv(c);
+        const clientMatch = Boolean(linked?.companyName && (linked.companyName || '').toLowerCase().includes(query));
         const lastMsgMatch = Boolean(getLastMessageText(c.lastMessage).toLowerCase().includes(query));
         if (!nameMatch && !clientMatch && !lastMsgMatch) return false;
       }
@@ -3596,9 +3609,9 @@ export default function ChatsPage() {
 
       if (clientConvs.length > 0) {
         if (query) {
-          const clientMatches = client.companyName.toLowerCase().includes(query);
+          const clientMatches = Boolean(client.companyName && (client.companyName || '').toLowerCase().includes(query));
           const matchingConvs = clientConvs.filter(c =>
-            getConvDisplayName(c).toLowerCase().includes(query) ||
+            (getConvDisplayName(c) || '').toLowerCase().includes(query) ||
             Boolean(getLastMessageText(c.lastMessage).toLowerCase().includes(query))
           );
           if (clientMatches || matchingConvs.length > 0) {
@@ -3621,7 +3634,7 @@ export default function ChatsPage() {
           }
         }
       } else {
-        if (!query || client.companyName.toLowerCase().includes(query)) {
+        if (!query || Boolean(client.companyName && (client.companyName || '').toLowerCase().includes(query))) {
           if (isInactive) {
             inactiveWithoutChats.push(client);
           } else {
@@ -4070,7 +4083,7 @@ export default function ChatsPage() {
                       {!isCollapsed && (
                         <div className="divide-y divide-slate-100/60 dark:divide-slate-800/40">
                       {convs.map(conv => {
-                        const otherId = conv.type === 'direct' ? conv.members.find(id => id !== user?.id) : undefined;
+                        const otherId = conv.type === 'direct' ? (conv.members || []).find(id => id !== user?.id) : undefined;
                         const otherAvatar = otherId ? usersById[otherId]?.avatar : null;
                         const isSelected = activeConv?.id === conv.id;
                         return (
@@ -4372,7 +4385,7 @@ export default function ChatsPage() {
                         {!isCollapsed && (
                           <div className="divide-y divide-slate-100/60 dark:divide-slate-800/40">
                         {convs.map(conv => {
-                          const otherId = conv.type === 'direct' ? conv.members.find(id => id !== user?.id) : undefined;
+                          const otherId = conv.type === 'direct' ? (conv.members || []).find(id => id !== user?.id) : undefined;
                           const otherAvatar = otherId ? usersById[otherId]?.avatar : null;
                           const isSelected = activeConv?.id === conv.id;
                           return (
@@ -4559,7 +4572,7 @@ export default function ChatsPage() {
                 </div>
               )}
               {filteredConvs.map(conv => {
-                const otherId = conv.type === 'direct' ? conv.members.find(id => id !== user?.id) : undefined;
+                const otherId = conv.type === 'direct' ? (conv.members || []).find(id => id !== user?.id) : undefined;
                 const otherAvatar = otherId ? usersById[otherId]?.avatar : null;
                 const linkedClient = getLinkedClientForConv(conv);
                 const isSelected = activeConv?.id === conv.id;
@@ -4733,17 +4746,17 @@ export default function ChatsPage() {
                     'bg-slate-150 text-slate-600 dark:bg-slate-800/40 dark:text-slate-400'
                   }`}>
                     {(() => {
-                      const otherId = activeConv.type === 'direct' ? activeConv.members.find(id => id !== user?.id) : undefined;
+                      const otherId = activeConv.type === 'direct' ? (activeConv.members || []).find(id => id !== user?.id) : undefined;
                       const otherAvatar = otherId ? usersById[otherId]?.avatar : null;
                       if (otherAvatar) return <img src={otherAvatar} alt={getConvDisplayName(activeConv)} className="h-full w-full object-cover" />;
                       if (activeConv.avatar) return <img src={activeConv.avatar} alt={getConvDisplayName(activeConv)} className="h-full w-full object-cover" />;
                       if (activeConv.type === 'channel') return <Hash className="h-4 w-4" />;
                       if (activeConv.type === 'group') return <Users2 className="h-4 w-4" />;
-                      return getConvDisplayName(activeConv)[0]?.toUpperCase() ?? '?';
+                      return (getConvDisplayName(activeConv) || '?')[0]?.toUpperCase() ?? '?';
                     })()}
                   </div>
                   {activeConv.type === 'direct' && (() => {
-                    const otherId = activeConv.members.find(id => id !== user?.id);
+                    const otherId = (activeConv.members || []).find(id => id !== user?.id);
                     return otherId && usersById[otherId]?.status === 'online';
                   })() && (
                     <span className="absolute bottom-0 right-0 block h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
@@ -4776,12 +4789,12 @@ export default function ChatsPage() {
                       <span className="text-indigo-500 dark:text-indigo-400 animate-pulse">{typingDisplay}</span>
                     ) : activeConv.type === 'direct' ? (
                       (() => {
-                        const otherId = activeConv.members.find(id => id !== user?.id);
+                        const otherId = (activeConv.members || []).find(id => id !== user?.id);
                         const status = otherId ? usersById[otherId]?.status : 'offline';
                         return status === 'online' ? 'Online' : 'Offline';
                       })()
                     ) : (
-                      `${activeConv.type} · ${activeConv.members.length} members`
+                      `${activeConv.type} · ${(activeConv.members || []).length} members`
                     )}
                   </p>
                 </div>
@@ -5806,7 +5819,7 @@ export default function ChatsPage() {
             <button
               onClick={() => {
                 const isAdmin = activeConv.type === 'direct' || 
-                  (activeConv.creatorId ? activeConv.creatorId === user?.id : activeConv.members[0] === user?.id);
+                  (activeConv.creatorId ? activeConv.creatorId === user?.id : (activeConv.members || [])[0] === user?.id);
                 if (!isAdmin) {
                   alert(`Only the creator/admin of this ${activeConv.type === 'group' ? 'group' : 'channel'} can delete it.`);
                   return;
@@ -6159,7 +6172,7 @@ export default function ChatsPage() {
               
               {/* Direct Message (DM) User Details */}
               {activeConv.type === 'direct' && (() => {
-                const otherId = activeConv.members.find(id => id !== user?.id);
+                const otherId = (activeConv.members || []).find(id => id !== user?.id);
                 const otherUser = otherId ? usersById[otherId] : null;
                 if (!otherUser) {
                   return <p className="text-xs text-slate-400 text-center">User details not found</p>;
@@ -6358,11 +6371,11 @@ export default function ChatsPage() {
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider font-semibold">
-                            Members ({activeConv.members.length})
+                            Members ({(activeConv.members || []).length})
                           </label>
                         </div>
                         <div className="max-h-[160px] overflow-y-auto space-y-1.5 border border-slate-150 dark:border-slate-800 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-955/10">
-                          {activeConv.members.map(memberId => {
+                          {(activeConv.members || []).map(memberId => {
                             const mUser = usersById[memberId];
                             if (!mUser) return null;
                             const isMe = memberId === user?.id;
@@ -6419,9 +6432,9 @@ export default function ChatsPage() {
                           <div className="max-h-[120px] overflow-y-auto space-y-1 border border-slate-205 dark:border-slate-800 rounded-xl p-2 bg-slate-50 dark:bg-slate-950">
                             {Object.values(usersById)
                               .filter(u => 
-                                !activeConv.members.includes(u.id) && 
-                                (u.displayName.toLowerCase().includes(inviteSearchQuery.toLowerCase()) || 
-                                 u.username.toLowerCase().includes(inviteSearchQuery.toLowerCase()))
+                                !(activeConv.members || []).includes(u.id) && 
+                                (((u.displayName || '').toLowerCase().includes(inviteSearchQuery.toLowerCase())) || 
+                                 ((u.username || '').toLowerCase().includes(inviteSearchQuery.toLowerCase())))
                               )
                               .map(u => (
                                 <button
@@ -6442,7 +6455,7 @@ export default function ChatsPage() {
                   {/* Danger Zone */}
                   <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-4">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider font-semibold">Danger Zone</span>
-                    {(activeConv.creatorId ? activeConv.creatorId === user?.id : activeConv.members[0] === user?.id) ? (
+                    {(activeConv.creatorId ? activeConv.creatorId === user?.id : (activeConv.members || [])[0] === user?.id) ? (
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
@@ -6650,7 +6663,7 @@ export default function ChatsPage() {
                           className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer"
                         >
                           <option value="">📁 Attachments (Default)</option>
-                          {driveFolders.filter(f => f.name.toLowerCase() !== 'attachments' && f.name.toLowerCase() !== 'docspace' && f.name.toLowerCase() !== 'docdril storage').map(f => (
+                          {driveFolders.filter(f => f?.name && (f.name.toLowerCase() !== 'attachments' && f.name.toLowerCase() !== 'docspace' && f.name.toLowerCase() !== 'docdril storage')).map(f => (
                             <option key={f.id} value={f.id}>
                               📁 {f.name}
                             </option>
